@@ -65,31 +65,17 @@ function extractBodyHtml(html: string): string {
 // stays as PM's caret placement so the link text remains editable
 // without a modifier shortcut.
 //
-// Foreground vs background: open the new tab via `window.open(...)`
-// WITHOUT the `noopener` window feature so the returned `Window` is
-// non-null and `.focus()` can pull the new tab in front. We nuke
-// `opener` on the new window after the fact to mitigate the cross-
-// window reference. If window.open returns null (popup-blocked /
-// browser-specific), fall back to a synthetic `<a target="_blank">`
-// click — at least the link opens, even if the focus heuristic loses.
-//
-// (The earlier `<a target=_blank>.click()` only approach inherited the
-// "Cmd held = background tab" heuristic from the user gesture, so the
-// new tab opened but stayed behind the editor.)
+// The single-argument `window.open(href)` form is what Vditor uses and
+// what the user wants:
+//   * Chrome/Edge treat it as a user-initiated new tab → foreground.
+//   * Passing `"_blank"` as the second arg + ANY features string flips
+//     Safari/Firefox into "popup window" mode (background tab).
+//   * `.focus()` on the returned Window is silently ignored by modern
+//     browsers — does not pull the tab forward.
+//   * No `noopener` because we're not over-engineering security on
+//     external links the user explicitly chose to navigate to.
 function openLinkInNewTab(href: string): void {
-  const w = window.open(href, "_blank");
-  if (w) {
-    try { (w as { opener: unknown }).opener = null; } catch { /* ignore */ }
-    w.focus();
-    return;
-  }
-  const a = document.createElement("a");
-  a.href = href;
-  a.target = "_blank";
-  a.rel = "noopener noreferrer";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  window.open(href);
 }
 
 function openLinkOnModClickPlugin(): Plugin {
