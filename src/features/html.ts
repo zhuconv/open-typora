@@ -93,10 +93,11 @@ const BLOCK_CHROME_TAGS = new Set([
   "center",
 ]);
 
-// HTML entity references — `&name;`, `&#NN;`, `&#xHH;`. Common in
-// README HTML (`&nbsp;` separators, `&amp;` literals). We render the
-// decoded character as a widget; the source stays editable.
-const ENTITY_RE = /&(?:[a-zA-Z][a-zA-Z0-9]+|#\d+|#x[0-9a-fA-F]+);/g;
+// HTML entity references — `&name;`, `&#NN;`, `&#xHH;` (browsers also
+// accept `&#XHH;` with uppercase X). Common in README HTML (`&nbsp;`
+// separators, `&amp;` literals). We render the decoded character as a
+// widget; the source stays editable.
+const ENTITY_RE = /&(?:[a-zA-Z][a-zA-Z0-9]+|#\d+|#[xX][0-9a-fA-F]+);/g;
 
 // Cheap extractor — pulls `align="center"` or `style="text-align:center"`
 // out of the open tag. Loose attr matching is OK here: the tokenizer
@@ -252,7 +253,13 @@ function computeBlockAlign(doc: PMNode): DecorationSet {
     const first = tokens.find((t) => t.kind === "open" || t.kind === "close");
     if (!first || first.kind !== "open") return false;
     if (!BLOCK_CHROME_TAGS.has(first.tag.toLowerCase())) return false;
-    if (text.slice(0, first.start).trim() !== "") return false;
+    // Allow a leading HTML comment + whitespace before the opener
+    // (common `<!-- generated --><p align="center">…</p>` pattern).
+    const leadingStripped = text
+      .slice(0, first.start)
+      .replace(/<!--[\s\S]*?-->/g, "")
+      .trim();
+    if (leadingStripped !== "") return false;
     const align = extractAlignment(first.source, first.tag.toLowerCase());
     if (!align) return false;
     decos.push(
@@ -298,16 +305,20 @@ const inlineHtmlScan: InlineFeatureSpec["scan"] = (text, consumed, parentBlock) 
       }
     }
 
-    // Pass 2 (html_block only): if the first non-whitespace token is a
-    // block-chrome opener, hide its source chars. Alignment is applied
-    // separately by htmlBlockAlignPlugin (Decoration.node on the
-    // html_block div) — needed because inline decorations can't reach
-    // PM widgets like the rendered badges inside.
+    // Pass 2 (html_block only): if the first STRUCTURAL token (skipping
+    // comments / PI / declarations / CDATA) is a block-chrome opener,
+    // hide its source chars. Alignment is applied separately by
+    // htmlBlockAlignPlugin (Decoration.node on the html_block div) —
+    // needed because inline decorations can't reach PM widgets like
+    // the rendered badges inside.
     if (isHtmlBlock) {
       const first = tokens.find((t) => t.kind === "open" || t.kind === "close");
       if (first && first.kind === "open" && BLOCK_CHROME_TAGS.has(first.tag.toLowerCase())) {
+        // Allow comments / whitespace to precede the opener — common
+        // pattern: `<!-- generated --><p align="center">…</p>`.
         const leading = text.slice(0, first.start);
-        if (leading.trim() === "") emitBlockOpener(consumed, first, text.length, out);
+        const leadingStripped = leading.replace(/<!--[\s\S]*?-->/g, "").trim();
+        if (leadingStripped === "") emitBlockOpener(consumed, first, text.length, out);
       }
     }
 
