@@ -78,27 +78,37 @@ function openLinkInNewTab(href: string): void {
   window.open(href);
 }
 
+// Link-click router (DOM-level, capture phase).
+//
+// `props.handleClick` only fires for clicks PM associates with a doc
+// position. Anchors rendered INSIDE widgets (e.g. our html-inline-render
+// `<a><img></a>` badges) bypass PM entirely — the browser's native `<a>`
+// navigation runs, and inside a Tauri/Electron WKWebView that means the
+// whole webview navigates away, blowing up the editor session.
+//
+// Attach a capture-phase listener on view.dom so we see EVERY `<a>` click,
+// widget-rendered or mark-rendered. Always preventDefault. Cmd/Ctrl+click
+// goes through the host's openLink (system browser); plain click is
+// otherwise harmless and PM positions the caret naturally for mark-style
+// anchors.
 function openLinkOnModClickPlugin(openLink: (href: string) => void): Plugin {
   return new Plugin({
-    props: {
-      handleClick(_view, _pos, event) {
-        const a = (event.target as Element | null)?.closest("a");
-        if (!a) return false;
+    view(editorView) {
+      const onClick = (event: MouseEvent): void => {
+        const a = (event.target as Element | null)?.closest?.("a");
+        if (!a) return;
         const href = a.getAttribute("href");
-        if (!href) return false;
-        // Cmd/Ctrl+click → invoke the host-provided opener.
-        if (event.metaKey || event.ctrlKey) {
-          event.preventDefault();
-          openLink(href);
-          return true;
-        }
-        // Plain click — always suppress the native `<a>` navigation,
-        // otherwise an embedded host (Tauri WKWebView) will follow the
-        // URL inside the editor pane and wipe out the user's session.
-        // Returning false lets PM continue with caret placement.
+        if (!href) return;
+        // Always suppress native navigation — preserves the editor pane.
         event.preventDefault();
-        return false;
-      },
+        if (event.metaKey || event.ctrlKey) openLink(href);
+      };
+      editorView.dom.addEventListener("click", onClick, true);
+      return {
+        destroy(): void {
+          editorView.dom.removeEventListener("click", onClick, true);
+        },
+      };
     },
   });
 }
