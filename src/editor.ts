@@ -82,14 +82,22 @@ function openLinkOnModClickPlugin(openLink: (href: string) => void): Plugin {
   return new Plugin({
     props: {
       handleClick(_view, _pos, event) {
-        if (!event.metaKey && !event.ctrlKey) return false;
         const a = (event.target as Element | null)?.closest("a");
         if (!a) return false;
         const href = a.getAttribute("href");
         if (!href) return false;
+        // Cmd/Ctrl+click → invoke the host-provided opener.
+        if (event.metaKey || event.ctrlKey) {
+          event.preventDefault();
+          openLink(href);
+          return true;
+        }
+        // Plain click — always suppress the native `<a>` navigation,
+        // otherwise an embedded host (Tauri WKWebView) will follow the
+        // URL inside the editor pane and wipe out the user's session.
+        // Returning false lets PM continue with caret placement.
         event.preventDefault();
-        openLink(href);
-        return true;
+        return false;
       },
     },
   });
