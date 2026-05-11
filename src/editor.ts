@@ -11,24 +11,20 @@ import { markdownInputRules, spaceBreaksStoredMarks } from "./input-rules.ts";
 import { normalizeInlinePlugin } from "./normalize.ts";
 import { schema } from "./schema.ts";
 
-// Click semantics on `<a>`:
-//   plain click  → open href in a new tab (preventDefault on PM's caret move)
-//   Cmd/Ctrl+click → fall through to PM, which positions the caret inside
-//                    the link span for editing the text/href
-// Trade-off vs Typora's stock behavior: we prioritise "links act like links"
-// over "click positions caret", which suits Typora-web's WYSIWYG audience.
-// Caret positioning is still reachable via Mod-click or arrow keys.
-function openLinkOnClickPlugin(): Plugin {
+// Open `<a>` on Cmd/Ctrl+click — Typora's stock behavior. Plain click
+// stays as PM's caret placement so the link text remains editable
+// without a modifier shortcut. The modifier check is fail-soft: if
+// navigator.platform is empty (modern Chromium under UA-CH), accept
+// either Meta or Ctrl as the navigation modifier.
+function openLinkOnModClickPlugin(): Plugin {
   return new Plugin({
     props: {
       handleClick(_view, _pos, event) {
+        if (!event.metaKey && !event.ctrlKey) return false;
         const a = (event.target as Element | null)?.closest("a");
         if (!a) return false;
         const href = a.getAttribute("href");
         if (!href) return false;
-        const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
-        const mod = isMac ? event.metaKey : event.ctrlKey;
-        if (mod) return false;
         event.preventDefault();
         window.open(href, "_blank", "noopener,noreferrer");
         return true;
@@ -55,7 +51,7 @@ export function defaultPlugins(options: { cursorWidget?: boolean } = {}): Plugin
     // extra decorations merge into PM's decoration pipeline naturally).
     ...collectPlugins(schema),
     syntaxHintsPlugin(),
-    openLinkOnClickPlugin(),
+    openLinkOnModClickPlugin(),
   ];
   if (cursorWidget) plugins.push(cursorRenderPlugin());
   // Feature keymap wins over baseKeymap — features that override Enter /

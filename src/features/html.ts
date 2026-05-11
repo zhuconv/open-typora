@@ -15,6 +15,7 @@
 // paragraph carrying the verbatim text, so the existing html-comment mark
 // still applies via the inline scanner — preserving its gray-italic UX.
 
+import type { RuleBlock } from "markdown-it/lib/parser_block.mjs";
 import type { Node as PMNode } from "prosemirror-model";
 import { Plugin, TextSelection } from "prosemirror-state";
 import {
@@ -27,6 +28,76 @@ import {
 import { markConsumed, markExtRanges, type InlineSpan } from "../inline-parse.ts";
 import { sanitize } from "../sanitize.ts";
 import type { FeatureSpec, InlineFeatureSpec } from "./_types.ts";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Paired-tag block rule — `<p>…\n\n…</p>` stays one block
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// CommonMark `html_block` type 6 ends at a blank line, which fragments
+// HTML like the Vditor README (centered `<p>` with embedded `<img>` /
+// `<a>` separated by blank lines). For block-level paired tags we scan
+// across blank lines until the opening tag is balanced by its closer.
+// Naive count over the raw source — tag names buried inside attribute
+// values would mis-balance the count, but the common cases (tags on their
+// own lines, simple text between) round-trip cleanly.
+
+const PAIRED_BLOCK_TAGS = new Set([
+  "p", "div", "section", "article", "aside",
+  "header", "footer", "nav", "main",
+  "figure", "figcaption",
+  "details", "summary",
+  "blockquote",
+  "table", "thead", "tbody", "tfoot", "tr", "td", "th", "caption", "colgroup",
+  "ul", "ol", "li", "dl", "dd", "dt",
+  "form", "fieldset",
+  "pre",
+]);
+
+const htmlBlockPairedRule: RuleBlock = (state, startLine, endLine, silent) => {
+  const bm = state.bMarks[startLine]! + state.tShift[startLine]!;
+  const em = state.eMarks[startLine]!;
+  if (state.tShift[startLine]! > 3) return false;
+  const firstLine = state.src.slice(bm, em);
+  const openMatch = /^<([a-zA-Z][a-zA-Z0-9-]*)\b/.exec(firstLine);
+  if (!openMatch) return false;
+  const tag = openMatch[1]!.toLowerCase();
+  if (!PAIRED_BLOCK_TAGS.has(tag)) return false;
+
+  const openRe = new RegExp(`<${tag}\\b(?=[\\s/>])`, "gi");
+  const closeRe = new RegExp(`</${tag}\\s*>`, "gi");
+
+  let depth = 0;
+  let closeLine = -1;
+  for (let line = startLine; line <= endLine; line++) {
+    const ls = state.bMarks[line]!;
+    const le = state.eMarks[line]!;
+    const text = state.src.slice(ls, le);
+    const opens = (text.match(openRe) ?? []).length;
+    const closes = (text.match(closeRe) ?? []).length;
+    depth += opens - closes;
+    if (depth <= 0) {
+      closeLine = line;
+      break;
+    }
+  }
+  // Balanced close not found (or close came before any open) — let the
+  // stock html_block rule handle the line.
+  if (closeLine === -1) return false;
+  if (depth < 0) return false;
+  if (silent) return true;
+
+  const contentStart = state.bMarks[startLine]!;
+  const contentEnd = state.eMarks[closeLine]!;
+  const content = state.src.slice(contentStart, contentEnd);
+
+  const token = state.push("html_block", "div", 0);
+  token.content = content;
+  token.markup = "<html-block-paired>";
+  token.block = true;
+  token.map = [startLine, closeLine + 1];
+  state.line = closeLine + 1;
+  return true;
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Block: html_block node + NodeView
@@ -244,6 +315,15 @@ export const html: FeatureSpec = {
       // through our parser; html_inline tokens become literal text + the
       // inline scanner re-derives marks (method-B).
       md.set({ html: true });
+      // Stock CommonMark splits a `<p>...\n\n...</p>` into multiple
+      // html_blocks (type 6 ends at blank lines), which destroys layout-
+      // ful multi-element HTML the user wrote as one logical block.
+      // Pre-empt the stock rule with a paired-tag scanner that crosses
+      // blank lines until the open tag is balanced. Falls back to the
+      // stock rule for tags we don't track or unbalanced source.
+      md.block.ruler.before("html_block", "html_block_paired", htmlBlockPairedRule, {
+        alt: ["paragraph", "reference", "blockquote", "list"],
+      });
     },
   ],
 

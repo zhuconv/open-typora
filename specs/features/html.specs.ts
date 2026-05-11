@@ -93,7 +93,25 @@ export const htmlSpecs: FeatureSpecs = {
     },
 
     // ──────────────────────────────────────────────────────────────
-    // 4. Block-level <details> with cursor inside → source visible.
+    // 4. Paired-tag scanner: `<p>…\n\n…</p>` stays one html_block
+    //    even with blank lines inside (Vditor README pattern).
+    // ──────────────────────────────────────────────────────────────
+    {
+      id: "paired-tag-keeps-blanks",
+      label: "<p align=center>\\n\\n<img/>\\n\\n</p> stays one block",
+      seed: "<p align=\"center\">\n\n<img alt=\"x\" src=\"/y\"/>\n\n</p>\n\nafter",
+      events: [],
+      checkpoints: [
+        {
+          at: 0,
+          expect:
+            '<html-block source="<p align=\\"center\\">\\n\\n<img alt=\\"x\\" src=\\"/y\\"/>\\n\\n</p>" />\nafter|',
+        },
+      ],
+    },
+
+    // ──────────────────────────────────────────────────────────────
+    // 5. Block-level <details> with cursor inside → source visible.
     // ──────────────────────────────────────────────────────────────
     {
       id: "edit-mode-on-cursor-inside",
