@@ -1,4 +1,4 @@
-# typora-web
+# open-typora
 
 A Typora-style WYSIWYG Markdown editor built on ProseMirror.
 

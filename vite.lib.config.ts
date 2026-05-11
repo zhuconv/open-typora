@@ -13,7 +13,7 @@ export default defineConfig({
     lib: {
       entry: resolve(__dirname, "src/lib.ts"),
       formats: ["es"],
-      fileName: "typora-web",
+      fileName: "open-typora",
     },
     outDir: "dist/lib",
     emptyOutDir: true,

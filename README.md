@@ -1,4 +1,4 @@
-# typora-web
+# open-typora
 
 > A Typora-style Markdown editor for the web.
 
@@ -50,15 +50,15 @@ Press `⌘/` (or `Ctrl+/`) at any time to toggle between rendered and raw source
 ## Install
 
 ```sh
-npm install typora-web
+npm install open-typora
 ```
 
 ## Usage
 
 ```ts
-import { createEditor } from "typora-web";
-import "typora-web/widgets.css";
-import "typora-web/theme-typora.css";
+import { createEditor } from "open-typora";
+import "open-typora/widgets.css";
+import "open-typora/theme-typora.css";
 
 const editor = createEditor(document.querySelector("#app")!, {
   initialContent: "# hello",
@@ -80,7 +80,7 @@ Controller methods:
 
 Options: `initialContent`, `onChange(md)`, `onFocus()`, `onBlur()`.
 
-Two themes ship: `typora-web/theme-typora.css` (default look on the live demo) and `typora-web/theme-github.css`. Import one. To roll your own, write a stylesheet that targets `.ProseMirror` descendants.
+Two themes ship: `open-typora/theme-typora.css` (default look on the live demo) and `open-typora/theme-github.css`. Import one. To roll your own, write a stylesheet that targets `.ProseMirror` descendants.
 
 ## Coverage
 
@@ -164,7 +164,7 @@ Bug reports and feature requests are accepted as specs. If a Typora behavior isn
 
 The "report" link on every card in the [live demo's catalog][demo-specs] prefills an issue with seed, events, and observed output ready for you to fill in.
 
-[demo]: https://yuyz0112.github.io/typora-web/ "live demo"
-[demo-specs]: https://yuyz0112.github.io/typora-web/#/specs "spec catalog"
+[demo]: https://zhuconv.github.io/open-typora/ "live demo"
+[demo-specs]: https://zhuconv.github.io/open-typora/#/specs "spec catalog"
 [cm]: https://spec.commonmark.org/ "CommonMark"
 [pmguide]: https://prosemirror.net/docs/guide/ "ProseMirror Guide"

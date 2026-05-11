@@ -91,15 +91,15 @@ html, body {
 .page-home .route-footer a:hover { color: #1f1f1f; border-bottom-color: #1f1f1f; }
 
 /* ─── home: paper around the createEditor() surface ──────────────── */
-/* The lib's createEditor() mounts a `.typora-web-wrap` containing a
- * `.typora-web-editor-host` (the PM view) and a hidden
- * `.typora-web-source` (the textarea for ⌘/ source mode). On home we
+/* The lib's createEditor() mounts a `.open-typora-wrap` containing a
+ * `.open-typora-editor-host` (the PM view) and a hidden
+ * `.open-typora-source` (the textarea for ⌘/ source mode). On home we
  * style the wrap as a paper sheet floating over the off-white page;
  * specs and other routes stay flat.
  *
  * Two-layer shadow: tight close + wider ambient (Bear / Notion /
  * Typora's own surface). */
-.page-home .typora-web-wrap {
+.page-home .open-typora-wrap {
   min-height: 420px;
   padding: 20px 40px 40px;
   background: #fff;
@@ -109,7 +109,7 @@ html, body {
     0 8px 32px rgba(0, 0, 0, 0.06);
   box-sizing: border-box;
 }
-.page-home .typora-web-source {
+.page-home .open-typora-source {
   font: 14px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace;
   color: #555;
 }

@@ -61,11 +61,11 @@ export function createEditor(
   options: EditorOptions = {},
 ): Editor {
   const wrap = document.createElement("div");
-  wrap.className = "typora-web-wrap";
+  wrap.className = "open-typora-wrap";
   const editorHost = document.createElement("div");
-  editorHost.className = "typora-web-editor-host";
+  editorHost.className = "open-typora-editor-host";
   const sourceTextarea = document.createElement("textarea");
-  sourceTextarea.className = "typora-web-source";
+  sourceTextarea.className = "open-typora-source";
   sourceTextarea.hidden = true;
   wrap.append(editorHost, sourceTextarea);
   host.append(wrap);

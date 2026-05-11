@@ -2,13 +2,13 @@
 // `current` argument tells the bar which route to mark active so the
 // router doesn't have to special-case CSS.
 
-const GITHUB = "https://github.com/yuyz0112/typora-web";
+const GITHUB = "https://github.com/zhuconv/open-typora";
 
 export function mountNav(host: HTMLElement, current: string): void {
   const nav = document.createElement("nav");
   nav.className = "site-nav";
   nav.innerHTML = `
-    <a class="brand" href="#/">typora-web</a>
+    <a class="brand" href="#/">open-typora</a>
     <div class="nav-links">
       <a href="#/" data-route="/">Editor</a>
       <a href="#/specs" data-route="/specs">Specs</a>

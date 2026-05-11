@@ -6,7 +6,7 @@ export default defineConfig(({ command }) => ({
   // correctly. Lib mode (built separately, see src/lib.ts) does NOT
   // share this root — it bundles src/ only.
   root: "website",
-  // GitHub Pages serves the site from a subpath (`/typora-web/`); only
+  // GitHub Pages serves the site from a subpath (`/open-typora/`); only
   // the production build needs this — dev still serves from `/`.
   base: command === "build" ? "/open-typora/" : "/",
   build: {
