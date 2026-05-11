@@ -8,7 +8,7 @@ export default defineConfig(({ command }) => ({
   root: "website",
   // GitHub Pages serves the site from a subpath (`/typora-web/`); only
   // the production build needs this — dev still serves from `/`.
-  base: command === "build" ? "/typora-web/" : "/",
+  base: command === "build" ? "/open-typora/" : "/",
   build: {
     outDir: "../dist/website",
     emptyOutDir: true,
