@@ -1,14 +1,17 @@
-// HTML feature — block-level `<div>…</div>` style + inline `<kbd>x</kbd>`.
+// HTML feature — block-level `<div>…</div>` and inline `<kbd>x</kbd>`.
 //
-// Block: code-shaped node (`text*`, code: true) with a NodeView that toggles
-// between source view (cursor inside, raw HTML editable) and a sanitized
-// render via DOMPurify+GFM allowlist (cursor outside). Parser leans on
-// markdown-it's native `html_block` rule — we just opt into `html: true`.
+// Block model (matches Typora): an html_block is a textblock whose text is
+// the raw HTML source. The inline scanner re-derives method-B marks over
+// renderable patterns (`<img>`, `<a><img></a>`, `<kbd>x</kbd>`, …) and the
+// decoration layer drops sanitized widgets at the right positions. The
+// non-renderable source (`<br>`, `<p>`, `</p>`, plain text) stays visible
+// in the block — same as Typora's "rendered images on top of the source
+// you can still see and edit". No source/render toggle.
 //
-// Inline: method-B mark wrapping `<TAG>…</TAG>` literal source in the doc
-// text; widget decoration renders the sanitized HTML inline outside cursor,
-// source visible inside (image.ts pattern). Inline scan uses a regex over
-// the textblock text (we deliberately do NOT enable md-it's html_inline so
+// Parser leans on markdown-it's native `html_block` rule (we opt into
+// `html: true`) plus a custom paired-tag scanner that crosses blank lines
+// for `<p>…\n\n…</p>` style content. Inline scan uses a regex over the
+// textblock text (we deliberately do NOT enable md-it's html_inline so
 // html-comment's existing path stays untouched).
 //
 // Note on `<!-- -->`: the parser routes comment-only html_blocks back to a
@@ -16,14 +19,7 @@
 // still applies via the inline scanner — preserving its gray-italic UX.
 
 import type { RuleBlock } from "markdown-it/lib/parser_block.mjs";
-import type { Node as PMNode } from "prosemirror-model";
-import { Plugin, TextSelection } from "prosemirror-state";
-import {
-  Decoration,
-  DecorationSet,
-  type EditorView,
-  type NodeView,
-} from "prosemirror-view";
+import { TextSelection } from "prosemirror-state";
 
 import { markConsumed, markExtRanges, type InlineSpan } from "../inline-parse.ts";
 import { sanitize } from "../sanitize.ts";
@@ -99,131 +95,28 @@ const htmlBlockPairedRule: RuleBlock = (state, startLine, endLine, silent) => {
   return true;
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Block: html_block node + NodeView
-// ─────────────────────────────────────────────────────────────────────────────
-
-class HtmlBlockView implements NodeView {
-  dom: HTMLElement;
-  contentDOM: HTMLElement;
-  private renderEl: HTMLElement;
-  private view: EditorView;
-  private getPos: () => number | undefined;
-
-  constructor(
-    node: PMNode,
-    view: EditorView,
-    getPos: () => number | undefined,
-    decorations: readonly Decoration[] = [],
-  ) {
-    this.view = view;
-    this.getPos = getPos;
-
-    const outer = document.createElement("div");
-    outer.className = "html-block";
-    outer.setAttribute("data-html-block", "");
-
-    const pre = document.createElement("pre");
-    pre.className = "html-source";
-    const code = document.createElement("code");
-    pre.appendChild(code);
-
-    const render = document.createElement("div");
-    render.className = "html-render";
-    render.setAttribute("contenteditable", "false");
-
-    outer.appendChild(pre);
-    outer.appendChild(render);
-
-    this.dom = outer;
-    this.contentDOM = code;
-    this.renderEl = render;
-
-    this.refreshRender(node.textContent);
-    this.applyDecorations(decorations);
-    render.addEventListener("mousedown", this.onRenderMouseDown);
-  }
-
-  private onRenderMouseDown = (e: MouseEvent): void => {
-    e.preventDefault();
-    const pos = this.getPos();
-    if (pos == null) return;
-    const node = this.view.state.doc.nodeAt(pos);
-    if (!node) return;
-    const inside = pos + node.nodeSize - 1;
-    const tr = this.view.state.tr.setSelection(
-      TextSelection.create(this.view.state.doc, inside),
-    );
-    this.view.dispatch(tr);
-    this.view.focus();
-  };
-
-  private refreshRender(source: string): void {
-    if (!source.trim()) {
-      this.renderEl.innerHTML = "";
-      this.renderEl.classList.add("html-empty");
-      this.renderEl.textContent = "HTML block — click to edit";
-      return;
-    }
-    this.renderEl.classList.remove("html-empty");
-    this.renderEl.innerHTML = sanitize(source);
-  }
-
-  private applyDecorations(decorations: readonly Decoration[]): void {
-    let active = false;
-    for (const d of decorations) {
-      const spec = (d as unknown as { spec?: { hbActive?: boolean } }).spec;
-      if (spec?.hbActive) active = true;
-    }
-    this.dom.classList.toggle("hb-active", active);
-  }
-
-  update(node: PMNode, decorations: readonly Decoration[]): boolean {
-    if (node.type.name !== "html_block") return false;
-    this.refreshRender(node.textContent);
-    this.applyDecorations(decorations);
-    return true;
-  }
-
-  destroy(): void {
-    this.renderEl.removeEventListener("mousedown", this.onRenderMouseDown);
-  }
-}
-
-function htmlBlockChromePlugin(): Plugin {
-  return new Plugin({
-    props: {
-      nodeViews: {
-        html_block: (node, view, getPos, decorations) =>
-          new HtmlBlockView(node, view, getPos, decorations as readonly Decoration[]),
-      },
-      decorations(state) {
-        const sel = state.selection;
-        if (!sel.empty) return null;
-        const $from = sel.$from;
-        for (let d = $from.depth; d >= 0; d--) {
-          const n = $from.node(d);
-          if (n.type.name === "html_block") {
-            const pos = $from.before(d);
-            return DecorationSet.create(state.doc, [
-              Decoration.node(pos, pos + n.nodeSize, { class: "hb-active" }, { hbActive: true }),
-            ]);
-          }
-        }
-        return null;
-      },
-    },
-  });
-}
+// (No NodeView needed: html_block is a plain styled textblock; PM renders
+// it via toDOM, the inline scanner + decoration layer handle the
+// rendered widgets, and CSS handles the visual chrome.)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Inline: method-B mark + widget render
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// Allowed inline tags — a conservative subset of GFM that's plausibly inline.
-// `<br>`/`<hr>`/`<img>` are not here because the editor already represents
-// them as their own nodes (hard_break / horizontal_rule / image). `<a>` is
-// excluded because the markdown link syntax + parser owns that semantic.
+// Three pattern families get rendered as inline widgets (sanitised HTML
+// dropped at the source position; method-B source-hidden-outside-cursor):
+//
+//   1. `<a …><img …></a>` — link-wrapped image (badges, click-targets).
+//   2. `<img …>` standalone.
+//   3. `<TAG …>…</TAG>` paired inline tag from a conservative allowlist
+//      (kbd / sub / sup / mark / ins / u / abbr / cite / q / samp / var /
+//      small / big / tt).
+//
+// Order: longer / more specific patterns scan first so they claim chars
+// before broader patterns get to them. Non-rendering structural source
+// (`<br>`, `<p>`, `</p>`, plain text) stays as visible text — matches
+// Typora's "rendered images on top of source you can still see and edit"
+// behavior in HTML blocks.
 
 const INLINE_TAGS = [
   "kbd", "sub", "sup", "mark", "ins", "u", "abbr", "cite", "q",
@@ -232,19 +125,17 @@ const INLINE_TAGS = [
 
 const INLINE_TAGS_RE = INLINE_TAGS.join("|");
 
-// Match a closed pair `<TAG attrs?>content</TAG>` (case-insensitive on tag).
-// Content cannot contain `<` (so nested tags aren't recognised in the pilot;
-// good-enough heuristic for the common cases).
-const HTML_INLINE_RE = new RegExp(
+const HTML_LINK_IMG_RE = /<a\b(?:[^>]*)?>\s*<img\b(?:[^>]*?)\s*\/?>\s*<\/a>/gi;
+const HTML_IMG_RE = /<img\b(?:[^>]*?)\s*\/?>/gi;
+const HTML_INLINE_PAIR_RE = new RegExp(
   `<(${INLINE_TAGS_RE})(?:\\s+[^>]*)?>([^<\\n]*)</\\1>`,
   "gi",
 );
 
-const inlineHtmlScan: InlineFeatureSpec["scan"] = (text, consumed) => {
-  const out: InlineSpan[] = [];
-  HTML_INLINE_RE.lastIndex = 0;
+function emitWidgetSpan(text: string, consumed: Uint8Array, re: RegExp, out: InlineSpan[]): void {
+  re.lastIndex = 0;
   let m: RegExpExecArray | null;
-  while ((m = HTML_INLINE_RE.exec(text))) {
+  while ((m = re.exec(text))) {
     const fullStart = m.index;
     const fullEnd = fullStart + m[0].length;
     let blocked = false;
@@ -259,8 +150,6 @@ const inlineHtmlScan: InlineFeatureSpec["scan"] = (text, consumed) => {
       type: "html_inline",
       from: fullStart,
       to: fullEnd,
-      // Open/close ranges collapse to zero so normalize doesn't paint the
-      // standard delim hint — the mark wraps the entire literal source.
       openFrom: fullStart,
       openTo: fullStart,
       closeFrom: fullEnd,
@@ -272,6 +161,14 @@ const inlineHtmlScan: InlineFeatureSpec["scan"] = (text, consumed) => {
       ],
     });
   }
+}
+
+const inlineHtmlScan: InlineFeatureSpec["scan"] = (text, consumed) => {
+  const out: InlineSpan[] = [];
+  // Longest / most specific patterns first.
+  emitWidgetSpan(text, consumed, HTML_LINK_IMG_RE, out);
+  emitWidgetSpan(text, consumed, HTML_INLINE_PAIR_RE, out);
+  emitWidgetSpan(text, consumed, HTML_IMG_RE, out);
   return out;
 };
 
@@ -287,14 +184,19 @@ export const html: FeatureSpec = {
   nodes: {
     html_block: {
       group: "block",
+      // text*-with-marks: PM treats this as a textblock so the inline
+      // scanner runs over its text; `marks: "_"` lets method-B marks
+      // (image, html_inline, etc.) attach to the embedded HTML source.
+      // `code: true` makes Enter insert `\n` (we want multi-line HTML
+      // sources to stay one block, not split).
       content: "text*",
       code: true,
-      marks: "",
+      marks: "_",
       defining: true,
       parseDOM: [
         { tag: "div[data-html-block]", preserveWhitespace: "full" },
       ],
-      toDOM: () => ["div", { "data-html-block": "" }, 0],
+      toDOM: () => ["div", { "data-html-block": "", class: "html-block" }, 0],
     },
   },
 
@@ -381,8 +283,6 @@ export const html: FeatureSpec = {
     markNames: ["html_inline"],
     extRanges: (parent) => markExtRanges(parent, "html_inline", 0),
   },
-
-  plugins: () => [htmlBlockChromePlugin()],
 
   keymap: (schema) => ({
     // Inside an html_block on an empty trailing line → exit to block below.

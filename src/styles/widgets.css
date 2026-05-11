@@ -338,32 +338,30 @@
   font-size: 0.85em;
 }
 
-/* ─── HTML block + inline NodeView ───────────────────────────────── */
-.ProseMirror .html-block { margin: 0.5em 0; }
-.ProseMirror .html-block .html-source { display: none; margin: 0; }
-.ProseMirror .html-block.hb-active .html-source {
-  display: block;
+/* ─── HTML block + inline (Typora-style mixed view) ──────────────── */
+/* html_block is a styled textblock — source stays visible (you edit
+ * directly), inline widgets render at matched positions. softInside on
+ * the matched span hides the source when the cursor is elsewhere, so
+ * outside-cursor the block looks "rendered" while inside-cursor you see
+ * the source you're editing. */
+.ProseMirror .html-block {
   background: #f7f7f7;
-  border: 1px solid #e5e5e5;
-  border-radius: 4px;
-  padding: 8px 10px;
-  font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  border-left: 3px solid #d8d8d8;
+  padding: 6px 10px;
+  margin: 0.5em 0;
   white-space: pre-wrap;
-}
-.ProseMirror .html-block .html-render {
-  display: block;
-  padding: 4px 0;
-  cursor: pointer;
-}
-.ProseMirror .html-block.hb-active .html-render { display: none; }
-.ProseMirror .html-block .html-render.html-empty {
-  color: #aaa;
-  font-style: italic;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.9em;
+  color: #444;
 }
 .ProseMirror .html-inline-render {
   display: inline-block;
   user-select: none;
+  vertical-align: middle;
+}
+.ProseMirror .html-inline-render img {
+  max-width: 100%;
+  vertical-align: middle;
 }
 
 

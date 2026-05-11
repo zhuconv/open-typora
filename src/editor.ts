@@ -63,9 +63,25 @@ function extractBodyHtml(html: string): string {
 
 // Open `<a>` on Cmd/Ctrl+click — Typora's stock behavior. Plain click
 // stays as PM's caret placement so the link text remains editable
-// without a modifier shortcut. The modifier check is fail-soft: if
-// navigator.platform is empty (modern Chromium under UA-CH), accept
-// either Meta or Ctrl as the navigation modifier.
+// without a modifier shortcut.
+//
+// Implementation note: a synthetic `<a target="_blank">.click()` is more
+// faithful than `window.open(...)`. Chrome treats programmatic anchor
+// clicks as if a user clicked a real link — so the new tab gets focus
+// (foreground), matching the user expectation of "jump to the link".
+// `window.open(... 'noopener,noreferrer')` returns null in modern Chrome
+// (intentional security), so we can't `.focus()` the new window, and the
+// default placement is a background tab.
+function openLinkInNewTab(href: string): void {
+  const a = document.createElement("a");
+  a.href = href;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 function openLinkOnModClickPlugin(): Plugin {
   return new Plugin({
     props: {
@@ -76,7 +92,7 @@ function openLinkOnModClickPlugin(): Plugin {
         const href = a.getAttribute("href");
         if (!href) return false;
         event.preventDefault();
-        window.open(href, "_blank", "noopener,noreferrer");
+        openLinkInNewTab(href);
         return true;
       },
     },
