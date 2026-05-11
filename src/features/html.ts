@@ -18,7 +18,6 @@
 // paragraph carrying the verbatim text, so the existing html-comment mark
 // still applies via the inline scanner — preserving its gray-italic UX.
 
-import type { RuleBlock } from "markdown-it/lib/parser_block.mjs";
 import { TextSelection } from "prosemirror-state";
 
 import { markConsumed, markExtRanges, type InlineSpan } from "../inline-parse.ts";
@@ -26,76 +25,15 @@ import { pairTags, tokenizeHtmlTags } from "../inline-html-tokenize.ts";
 import { sanitize } from "../sanitize.ts";
 import type { FeatureSpec, InlineFeatureSpec } from "./_types.ts";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Paired-tag block rule — `<p>…\n\n…</p>` stays one block
-// ─────────────────────────────────────────────────────────────────────────────
+// Architectural note: this feature does NOT extend the block parser.
+// CommonMark §4.6 type-6/7 html_blocks end at a blank line — that's
+// canonical and also how Typora behaves (each blank-line-separated
+// chunk renders independently, alignment applies per-block). Earlier
+// versions of this file added a paired-tag rule to keep `<p>…\n\n…</p>`
+// together, but that made multi-paragraph HTML look like one giant
+// centered block and diverged from Typora's "fragment + per-block
+// alignment" model.
 //
-// CommonMark `html_block` type 6 ends at a blank line, which fragments
-// HTML like the Vditor README (centered `<p>` with embedded `<img>` /
-// `<a>` separated by blank lines). For block-level paired tags we scan
-// across blank lines until the opening tag is balanced by its closer.
-// Naive count over the raw source — tag names buried inside attribute
-// values would mis-balance the count, but the common cases (tags on their
-// own lines, simple text between) round-trip cleanly.
-
-const PAIRED_BLOCK_TAGS = new Set([
-  "p", "div", "section", "article", "aside",
-  "header", "footer", "nav", "main",
-  "figure", "figcaption",
-  "details", "summary",
-  "blockquote",
-  "table", "thead", "tbody", "tfoot", "tr", "td", "th", "caption", "colgroup",
-  "ul", "ol", "li", "dl", "dd", "dt",
-  "form", "fieldset",
-  "pre",
-]);
-
-const htmlBlockPairedRule: RuleBlock = (state, startLine, endLine, silent) => {
-  const bm = state.bMarks[startLine]! + state.tShift[startLine]!;
-  const em = state.eMarks[startLine]!;
-  if (state.tShift[startLine]! > 3) return false;
-  const firstLine = state.src.slice(bm, em);
-  const openMatch = /^<([a-zA-Z][a-zA-Z0-9-]*)\b/.exec(firstLine);
-  if (!openMatch) return false;
-  const tag = openMatch[1]!.toLowerCase();
-  if (!PAIRED_BLOCK_TAGS.has(tag)) return false;
-
-  const openRe = new RegExp(`<${tag}\\b(?=[\\s/>])`, "gi");
-  const closeRe = new RegExp(`</${tag}\\s*>`, "gi");
-
-  let depth = 0;
-  let closeLine = -1;
-  for (let line = startLine; line <= endLine; line++) {
-    const ls = state.bMarks[line]!;
-    const le = state.eMarks[line]!;
-    const text = state.src.slice(ls, le);
-    const opens = (text.match(openRe) ?? []).length;
-    const closes = (text.match(closeRe) ?? []).length;
-    depth += opens - closes;
-    if (depth <= 0) {
-      closeLine = line;
-      break;
-    }
-  }
-  // Balanced close not found (or close came before any open) — let the
-  // stock html_block rule handle the line.
-  if (closeLine === -1) return false;
-  if (depth < 0) return false;
-  if (silent) return true;
-
-  const contentStart = state.bMarks[startLine]!;
-  const contentEnd = state.eMarks[closeLine]!;
-  const content = state.src.slice(contentStart, contentEnd);
-
-  const token = state.push("html_block", "div", 0);
-  token.content = content;
-  token.markup = "<html-block-paired>";
-  token.block = true;
-  token.map = [startLine, closeLine + 1];
-  state.line = closeLine + 1;
-  return true;
-};
-
 // (No NodeView needed: html_block is a plain styled textblock; PM renders
 // it via toDOM, the inline scanner + decoration layer handle the
 // rendered widgets, and CSS handles the visual chrome.)
@@ -134,19 +72,18 @@ const INLINE_RENDER_TAGS = new Set([
   "bdo", "bdi", "dfn", "time", "font",
 ]);
 
-// Void elements that trigger inline widget rendering by themselves (no
-// closer needed). `<hr>` deliberately omitted — it's block-level chrome
-// and should stay as source inside an html_block.
-const VOID_RENDER_TAGS = new Set(["img", "br"]);
+// Void elements that trigger inline widget rendering by themselves
+// (no closer needed). `<br>` deliberately omitted — Typora keeps it as
+// gray meta source rather than rendering an actual line break, and we
+// match that. `<hr>` similarly stays as source.
+const VOID_RENDER_TAGS = new Set(["img"]);
 
-// Pure layout containers. We don't render their tags as widgets; we hide
-// the tag chrome (`<p ...>` / `</p>`) and extract align/style attrs from
-// the opener, wrapping inner content with an alignment class. Matches
-// Typora's behavior for `<p align="center">…</p>` README headers.
-//
+// Pure layout containers — when one appears as the FIRST token of an
+// html_block we treat it as the block's wrapper: hide the opener chars
+// and extract align/style attrs to apply to the rest of the block.
 // Tags with semantic UI (details/summary, blockquote, table family) are
-// deliberately omitted — those should stay visible in source view so the
-// user sees they're authoring structured HTML.
+// omitted: they should stay visible in source view so the user sees
+// they're authoring structured HTML.
 const BLOCK_CHROME_TAGS = new Set([
   "p", "div", "section", "article", "aside",
   "header", "footer", "nav", "main",
@@ -204,45 +141,68 @@ function emitWidget(
   });
 }
 
-// Block-chrome variant: hide the opening + closing tag chars as
-// softInside (visible only when cursor enters the span), but leave
-// inner content intact so other inline scanners can still pick it up.
-// Apply alignment via a wrapping extraDecoration so `<p align="center">`
-// actually centers its content.
-function emitBlockChrome(
+// Block-opener variant: when the very first non-whitespace token of an
+// html_block is a block-chrome opening tag, treat it as the block's
+// wrapper. Hide the opener chars, extract align/style attrs from it,
+// and wrap the rest of the block's content in a CSS-aligned span.
+//
+// Doesn't try to pair with a closing tag — html_block fragments at
+// blank lines per CommonMark, so the closer often lives in a different
+// block and we'd never find it here. Matches Typora's per-block render
+// of `<p align="center">…</p>` README headers.
+function emitBlockOpener(
   text: string,
   consumed: Uint8Array,
-  m: { tag: string; start: number; end: number; openEnd: number; closeStart: number },
+  open: { tag: string; start: number; end: number; source: string },
   out: InlineSpan[],
-): void {
-  // Only block-chrome chars must be unclaimed; inner content can carry
-  // marks (the chrome wraps around them).
-  for (let i = m.start; i < m.openEnd; i++) if (consumed[i]) return;
-  for (let i = m.closeStart; i < m.end; i++) if (consumed[i]) return;
-  markConsumed(consumed, m.start, m.openEnd);
-  markConsumed(consumed, m.closeStart, m.end);
+): boolean {
+  for (let i = open.start; i < open.end; i++) if (consumed[i]) return false;
+  markConsumed(consumed, open.start, open.end);
 
-  const align = extractAlignment(text.slice(m.start, m.openEnd), m.tag.toLowerCase());
+  const align = extractAlignment(open.source, open.tag.toLowerCase());
+  const blockEnd = text.length;
 
   out.push({
     // Empty mark range — we only want the decorations, no html_inline
     // mark on the inner content (it stays free for nested scanners).
     type: "html_inline",
-    from: m.end, to: m.end,
-    openFrom: m.end, openTo: m.end,
-    closeFrom: m.end, closeTo: m.end,
-    delimRanges: [
-      { from: m.start, to: m.openEnd, softInside: true },
-      { from: m.closeStart, to: m.end, softInside: true },
-    ],
+    from: blockEnd, to: blockEnd,
+    openFrom: blockEnd, openTo: blockEnd,
+    closeFrom: blockEnd, closeTo: blockEnd,
+    delimRanges: [{ from: open.start, to: open.end, softInside: true }],
     extraDecorations: align
       ? [{
-          from: m.openEnd,
-          to: m.closeStart,
+          from: open.end,
+          to: blockEnd,
           nodeName: "span",
           attrs: { class: `html-align-${align}` },
         }]
       : undefined,
+  });
+  return true;
+}
+
+// Gray-meta variant: every HTML tag that didn't trigger a widget or a
+// block-opener treatment renders its source as `<span class="html-meta">`
+// (light gray, monospace-ish). Mirrors Typora's UX for unrenderable
+// inline HTML like `<br>` / `</p>` inside an html_block: the user sees
+// the source as a hint that they're authoring HTML, without committing
+// to a fake line break or a hidden phantom tag.
+function emitGrayMeta(
+  consumed: Uint8Array,
+  tok: { start: number; end: number },
+  out: InlineSpan[],
+): void {
+  for (let i = tok.start; i < tok.end; i++) if (consumed[i]) return;
+  markConsumed(consumed, tok.start, tok.end);
+  out.push({
+    type: "html_inline",
+    from: tok.end, to: tok.end,
+    openFrom: tok.end, openTo: tok.end,
+    closeFrom: tok.end, closeTo: tok.end,
+    extraDecorations: [
+      { from: tok.start, to: tok.end, nodeName: "span", attrs: { class: "html-meta" } },
+    ],
   });
 }
 
@@ -271,28 +231,44 @@ function emitEntities(text: string, consumed: Uint8Array, out: InlineSpan[]): vo
   }
 }
 
-const inlineHtmlScan: InlineFeatureSpec["scan"] = (text, consumed) => {
+const inlineHtmlScan: InlineFeatureSpec["scan"] = (text, consumed, parentBlock) => {
   const out: InlineSpan[] = [];
+  const isHtmlBlock = parentBlock?.type.name === "html_block";
 
-  // Fast path on the markup-heavy half. Entities can appear without
-  // tags so we always check those separately.
   if (text.indexOf("<") >= 0) {
     const tokens = tokenizeHtmlTags(text);
-    const matches = pairTags(tokens);
-    // Outer-before-inner so the outer pair claims its range before the
-    // inner pair's blocked-check runs.
-    matches.sort((a, b) => a.start - b.start || b.end - a.end);
 
+    // Pass 1: emit widgets for renderable balanced pairs + void tags.
+    // Outer-before-inner sort so outer wins against inner of same shape.
+    const matches = pairTags(tokens);
+    matches.sort((a, b) => a.start - b.start || b.end - a.end);
     for (const m of matches) {
       const tagLow = m.tag.toLowerCase();
       if (m.kind === "void") {
-        if (!VOID_RENDER_TAGS.has(tagLow)) continue;
-        emitWidget(text, consumed, m.start, m.end, out);
+        if (VOID_RENDER_TAGS.has(tagLow)) emitWidget(text, consumed, m.start, m.end, out);
       } else if (INLINE_RENDER_TAGS.has(tagLow)) {
         emitWidget(text, consumed, m.start, m.end, out);
-      } else if (BLOCK_CHROME_TAGS.has(tagLow)) {
-        emitBlockChrome(text, consumed, m, out);
       }
+    }
+
+    // Pass 2 (html_block only): if the first non-whitespace token is a
+    // block-chrome opener, hide it and apply its alignment to the rest
+    // of the block. Per-block — no cross-block state.
+    if (isHtmlBlock) {
+      const first = tokens.find((t) => t.kind === "open" || t.kind === "close");
+      if (first && first.kind === "open" && BLOCK_CHROME_TAGS.has(first.tag.toLowerCase())) {
+        const leading = text.slice(0, first.start);
+        if (leading.trim() === "") emitBlockOpener(text, consumed, first, out);
+      }
+    }
+
+    // Pass 3: every remaining tag token gets the gray-meta decoration.
+    // Runs in any textblock (including paragraphs) so an orphan `</p>`
+    // that md-it routed out of html_block context still reads as HTML
+    // chrome. Comments belong to the html-comment feature and skip.
+    for (const t of tokens) {
+      if (t.kind === "comment") continue;
+      emitGrayMeta(consumed, t, out);
     }
   }
 
@@ -343,17 +319,10 @@ export const html: FeatureSpec = {
     (md) => {
       // Enable markdown-it's built-in HTML parsing. html_block tokens flow
       // through our parser; html_inline tokens become literal text + the
-      // inline scanner re-derives marks (method-B).
+      // inline scanner re-derives marks (method-B). CommonMark's standard
+      // blank-line-terminates-html-block behavior is preserved — alignment
+      // applies per-block, matching Typora's render.
       md.set({ html: true });
-      // Stock CommonMark splits a `<p>...\n\n...</p>` into multiple
-      // html_blocks (type 6 ends at blank lines), which destroys layout-
-      // ful multi-element HTML the user wrote as one logical block.
-      // Pre-empt the stock rule with a paired-tag scanner that crosses
-      // blank lines until the open tag is balanced. Falls back to the
-      // stock rule for tags we don't track or unbalanced source.
-      md.block.ruler.before("html_block", "html_block_paired", htmlBlockPairedRule, {
-        alt: ["paragraph", "reference", "blockquote", "list"],
-      });
     },
   ],
 

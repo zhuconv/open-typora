@@ -11,9 +11,10 @@ import type { Node as PMNode } from "prosemirror-model";
 
 import { collectInlineFeatures } from "./features/index.ts";
 
-// Some inline features need parent context (e.g. task-list trigger only
-// fires for textblocks directly inside a list_item). parseInline threads
-// the parent textblock node through to each feature's scan.
+// Some inline features need block-level context. parseInline threads
+// the textblock node itself through to each feature's scan so features
+// can introspect (e.g. `node.type.name === "html_block"`). Features
+// needing the outer parent walk via the schema if necessary.
 export type InlineSpan = {
   type: string; // mark name — filled by the scanning feature
   from: number;

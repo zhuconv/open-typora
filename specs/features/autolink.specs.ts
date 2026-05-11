@@ -37,11 +37,11 @@ export const autolinkSpecs: FeatureSpecs = {
     },
     {
       id: "non-url-not-touched",
-      label: "<not a url> — no scheme/email shape, stays plain text",
+      label: "<not a url> — autolink ignores; html scanner gray-metas it",
       seed: "<not a url> ",
       events: [],
       checkpoints: [
-        { at: 0, expect: "<not a url> |" },
+        { at: 0, expect: "<m><not a url></m> |" },
       ],
     },
   ],

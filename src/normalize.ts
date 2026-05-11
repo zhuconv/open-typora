@@ -73,10 +73,12 @@ function computePlan(doc: PMNode): {
   const delims: DelimRange[] = [];
   const extras: ExtraDecoration[] = [];
   const widgets: WidgetDecoration[] = [];
-  doc.descendants((node, pos, parent) => {
+  doc.descendants((node, pos, _parent) => {
     if (!node.isTextblock) return true;
     const text = node.textContent;
-    const spans = parseInline(text, parent);
+    // Pass the textblock node itself so features can introspect it
+    // (e.g. html scanner checks `node.type.name === "html_block"`).
+    const spans = parseInline(text, node);
     const blockStart = pos + 1;
     blocks.push({ blockPos: pos, plan: { blockStart, spans } });
     for (const s of spans) {

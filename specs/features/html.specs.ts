@@ -19,13 +19,19 @@ export const htmlSpecs: FeatureSpecs = {
     },
     span: (_children, el) => {
       if (el.classList.contains("html-inline-render")) return "<html-inline/>";
+      // Gray-meta visual marker for unmatched HTML tag chrome
+      // (`<br>`, `</p>`, lone openers). Distinct from `<g>` (syntax-hint)
+      // so tests show the html-meta path is firing.
+      if (el.classList.contains("html-meta"))
+        return `<m>${el.textContent ?? ""}</m>`;
       return null;
     },
   },
   cases: [
     // ──────────────────────────────────────────────────────────────
     // 1. Block-level <details> stays as a single html_block with the
-    //    raw source visible (no scanner match → no widgets).
+    //    raw source visible as gray-meta (no scanner match → no
+    //    widgets; semantic tags rendered as html-meta source).
     // ──────────────────────────────────────────────────────────────
     {
       id: "parse-details",
@@ -36,7 +42,7 @@ export const htmlSpecs: FeatureSpecs = {
         {
           at: 0,
           expect:
-            "<html-block><details><summary>X</summary>body</details></html-block>\nafter|",
+            "<html-block><m><details></m><m><summary></m>X<m></summary></m>body<m></details></m></html-block>\nafter|",
         },
       ],
     },
@@ -47,11 +53,11 @@ export const htmlSpecs: FeatureSpecs = {
     // ──────────────────────────────────────────────────────────────
     {
       id: "garbage-stays-paragraph",
-      label: "`<not a url>` doesn't survive sanitize → plain paragraph",
+      label: "`<not a url>` doesn't survive sanitize → paragraph + gray meta",
       seed: "<not a url> ",
       events: [],
       checkpoints: [
-        { at: 0, expect: "<not a url> |" },
+        { at: 0, expect: "<m><not a url></m> |" },
       ],
     },
 
@@ -69,27 +75,33 @@ export const htmlSpecs: FeatureSpecs = {
     },
 
     // ──────────────────────────────────────────────────────────────
-    // 4. Paired-tag scanner keeps `<p>…\n\n…</p>` together as one
-    //    html_block; the embedded `<img/>` is rendered inline by the
-    //    scanner; the `<p>` / `</p>` chrome is softInside-hidden so
-    //    the cursor-outside view shows just the rendered content.
+    // 4. CommonMark fragments `<p>...\n\n...</p>` at blank lines.
+    //    Each fragment becomes its own html_block: opener-only block
+    //    (empty after chrome hide), then `<img/>` block (widget), then
+    //    `</p>` block (gray-meta). Matches Typora's per-block model.
     // ──────────────────────────────────────────────────────────────
     {
-      id: "paired-tag-keeps-blanks",
-      label: "<p>\\n\\n<img/>\\n\\n</p> chrome hidden; img renders inline",
+      id: "fragments-at-blank-lines",
+      label: "<p>\\n\\n<img/>\\n\\n</p> fragments into three blocks",
       seed: '<p align="center">\n\n<img alt="x" src="/y"/>\n\n</p>\n\nafter',
       events: [],
       checkpoints: [
         {
           at: 0,
-          expect: `<html-block>\n\n<html-inline/>\n\n</html-block>\nafter|`,
+          // Block 1: just `<p align="center">` chrome → empty after hide
+          // Block 2: just `<img/>` → widget
+          // Block 3: just `</p>` → md-it sees no surviving HTML after
+          //          sanitize and routes back to a paragraph; gray-meta
+          //          decoration still applies in paragraph context.
+          expect:
+            "<html-block></html-block>\n<html-block><html-inline/></html-block>\n<m></p></m>\nafter|",
         },
       ],
     },
 
     // ──────────────────────────────────────────────────────────────
-    // 5. Cursor inside the html_block → block stays editable as text
-    //    (source is the doc content; matches Typora's mixed view).
+    // 5. Cursor inside the html_block → source visible (gray meta on
+    //    chrome tags + caret rendered).
     // ──────────────────────────────────────────────────────────────
     {
       id: "cursor-inside-html-block",
@@ -97,7 +109,10 @@ export const htmlSpecs: FeatureSpecs = {
       seed: "<details>x</details>",
       events: [],
       checkpoints: [
-        { at: 0, expect: "<html-block><details>x</details>|</html-block>" },
+        {
+          at: 0,
+          expect: "<html-block><m><details></m>x<m></details></m>|</html-block>",
+        },
       ],
     },
 
@@ -112,7 +127,8 @@ export const htmlSpecs: FeatureSpecs = {
       checkpoints: [
         {
           at: 0,
-          expect: `<html-block><html-inline/></html-block>\nafter|`,
+          expect:
+            "<html-block><html-inline/><m></p></m></html-block>\nafter|",
         },
       ],
     },
@@ -157,7 +173,8 @@ export const htmlSpecs: FeatureSpecs = {
       checkpoints: [
         {
           at: 0,
-          expect: `<html-block><html-inline/> | <html-inline/></html-block>\nafter|`,
+          expect:
+            "<html-block><html-inline/> | <html-inline/><m></p></m></html-block>\nafter|",
         },
       ],
     },
@@ -167,11 +184,11 @@ export const htmlSpecs: FeatureSpecs = {
     // ──────────────────────────────────────────────────────────────
     {
       id: "unbalanced-open",
-      label: "<span>foo (no closer) stays raw",
+      label: "<span>foo (no closer) → gray meta on the orphan tag",
       seed: "<span>foo",
       events: [],
       checkpoints: [
-        { at: 0, expect: "<span>foo|" },
+        { at: 0, expect: "<m><span></m>foo|" },
       ],
     },
 
@@ -181,6 +198,9 @@ export const htmlSpecs: FeatureSpecs = {
     //     (markdown-it decodes entities in plain paragraphs at parse
     //     time, so this only kicks in for the html_block context
     //     where the source is preserved verbatim.)
+    //
+    //     The wrapping `<p>` chrome opener is hidden; the closing
+    //     `</p>` shows as gray-meta.
     // ──────────────────────────────────────────────────────────────
     {
       id: "entities-render",
@@ -191,24 +211,24 @@ export const htmlSpecs: FeatureSpecs = {
         {
           at: 0,
           expect:
-            `<html-block>English<html-inline/>|<html-inline/>Demo</html-block>\nafter|`,
+            "<html-block>English<html-inline/>|<html-inline/>Demo<m></p></m></html-block>\nafter|",
         },
       ],
     },
 
     // ──────────────────────────────────────────────────────────────
-    // 12. Block-chrome with no align attr — chrome still hides; just
-    //     no alignment wrapper applied.
+    // 12. Block-chrome with no align attr — opener still hides; no
+    //     alignment wrapper applied.
     // ──────────────────────────────────────────────────────────────
     {
       id: "block-chrome-no-align",
-      label: "<div>x</div> hides chrome, content stays",
+      label: "<div>x</div> hides opener; closer stays as gray meta",
       seed: "<div>hello</div>\n\nafter",
       events: [],
       checkpoints: [
         {
           at: 0,
-          expect: `<html-block>hello</html-block>\nafter|`,
+          expect: "<html-block>hello<m></div></m></html-block>\nafter|",
         },
       ],
     },

@@ -339,20 +339,13 @@
 }
 
 /* ─── HTML block + inline (Typora-style mixed view) ──────────────── */
-/* html_block is a styled textblock — source stays visible (you edit
- * directly), inline widgets render at matched positions. softInside on
- * the matched span hides the source when the cursor is elsewhere, so
- * outside-cursor the block looks "rendered" while inside-cursor you see
- * the source you're editing. */
+/* html_block renders inline with the surrounding text — no gray-bg
+ * code-block chrome. The block's identity comes from the gray-meta
+ * styling on unrenderable HTML tag source (<br>, </p>, etc.) and from
+ * the optional alignment wrapper extracted from a leading `<p align>`. */
 .ProseMirror .html-block {
-  background: #f7f7f7;
-  border-left: 3px solid #d8d8d8;
-  padding: 6px 10px;
-  margin: 0.5em 0;
   white-space: pre-wrap;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.9em;
-  color: #444;
+  margin: 0.5em 0;
 }
 .ProseMirror .html-inline-render {
   display: inline-block;
@@ -364,13 +357,23 @@
   vertical-align: middle;
 }
 
+/* Gray-meta — visual treatment for HTML tag source that didn't trigger
+ * a widget (e.g. `<br>`, `</p>`, lone openers / closers). Subdued color
+ * + monospace tells the reader "this is HTML chrome, not prose" without
+ * hiding it entirely (Typora's pattern; lets the user click in and
+ * edit the source). */
+.ProseMirror .html-meta {
+  color: #999;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}
+
 /* Block-level alignment wrapper applied via extraDecoration for
  * `<p align="center">…</p>` (and `style="text-align:…"` equivalents).
- * The opening / closing `<p>` tag chars themselves are softInside-hidden
- * so the user sees centered content with the chrome only when their
- * cursor enters the span. Span with `display: block` is the cleanest
- * way to make text-align take effect without inserting block-level
- * nodes into the textblock's content. */
+ * The opening `<p>` chars are softInside-hidden so the user sees the
+ * centered content with the chrome only when their cursor enters the
+ * span. `display: block` is the cleanest way to make text-align take
+ * effect without inserting block-level nodes into the textblock. */
 .ProseMirror .html-align-center { display: block; text-align: center; }
 .ProseMirror .html-align-left   { display: block; text-align: left; }
 .ProseMirror .html-align-right  { display: block; text-align: right; }
