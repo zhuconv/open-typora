@@ -18,7 +18,9 @@
 // paragraph carrying the verbatim text, so the existing html-comment mark
 // still applies via the inline scanner — preserving its gray-italic UX.
 
-import { TextSelection } from "prosemirror-state";
+import type { Node as PMNode } from "prosemirror-model";
+import { Plugin, PluginKey, TextSelection } from "prosemirror-state";
+import { Decoration, DecorationSet } from "prosemirror-view";
 
 import { markConsumed, markExtRanges, type InlineSpan } from "../inline-parse.ts";
 import { pairTags, tokenizeHtmlTags } from "../inline-html-tokenize.ts";
@@ -143,41 +145,33 @@ function emitWidget(
 
 // Block-opener variant: when the very first non-whitespace token of an
 // html_block is a block-chrome opening tag, treat it as the block's
-// wrapper. Hide the opener chars, extract align/style attrs from it,
-// and wrap the rest of the block's content in a CSS-aligned span.
+// wrapper — hide its source chars. Alignment is applied at the block
+// (div) level by the htmlBlockAlignPlugin below; doing it via an inline
+// extraDecoration here doesn't work because PM widgets break out of
+// inline ranges (badges inside `<p align="center">` end up unaligned).
 //
 // Doesn't try to pair with a closing tag — html_block fragments at
 // blank lines per CommonMark, so the closer often lives in a different
 // block and we'd never find it here. Matches Typora's per-block render
 // of `<p align="center">…</p>` README headers.
 function emitBlockOpener(
-  text: string,
   consumed: Uint8Array,
   open: { tag: string; start: number; end: number; source: string },
+  blockEnd: number,
   out: InlineSpan[],
 ): boolean {
   for (let i = open.start; i < open.end; i++) if (consumed[i]) return false;
   markConsumed(consumed, open.start, open.end);
 
-  const align = extractAlignment(open.source, open.tag.toLowerCase());
-  const blockEnd = text.length;
-
   out.push({
-    // Empty mark range — we only want the decorations, no html_inline
-    // mark on the inner content (it stays free for nested scanners).
+    // Empty mark range — we only want the delim decoration, no
+    // html_inline mark on the inner content (it stays free for nested
+    // scanners).
     type: "html_inline",
     from: blockEnd, to: blockEnd,
     openFrom: blockEnd, openTo: blockEnd,
     closeFrom: blockEnd, closeTo: blockEnd,
     delimRanges: [{ from: open.start, to: open.end, softInside: true }],
-    extraDecorations: align
-      ? [{
-          from: open.end,
-          to: blockEnd,
-          nodeName: "span",
-          attrs: { class: `html-align-${align}` },
-        }]
-      : undefined,
   });
   return true;
 }
@@ -231,6 +225,59 @@ function emitEntities(text: string, consumed: Uint8Array, out: InlineSpan[]): vo
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Block alignment plugin — Decoration.node on html_block divs
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Why a plugin (and not extraDecorations on the inline span):
+// `Decoration.inline` wraps a range of text positions, but PM widgets
+// (the rendered badge images, the file-input icons, etc.) live outside
+// the inline range — they're attached at single positions via
+// `Decoration.widget`. Wrapping the inner content of a block with an
+// alignment span via inline decoration leaves the widgets unaligned,
+// which is exactly what the `<p align="center">` README headers need
+// most. Node-level decoration on the html_block div sidesteps the
+// problem: the alignment class lives on the container and CSS does the
+// rest.
+
+const blockAlignKey = new PluginKey<DecorationSet>("html-block-align");
+
+function computeBlockAlign(doc: PMNode): DecorationSet {
+  const decos: Decoration[] = [];
+  doc.descendants((node, pos) => {
+    if (node.type.name !== "html_block") return false;
+    const text = node.textContent;
+    if (text.indexOf("<") < 0) return false;
+    const tokens = tokenizeHtmlTags(text);
+    const first = tokens.find((t) => t.kind === "open" || t.kind === "close");
+    if (!first || first.kind !== "open") return false;
+    if (!BLOCK_CHROME_TAGS.has(first.tag.toLowerCase())) return false;
+    if (text.slice(0, first.start).trim() !== "") return false;
+    const align = extractAlignment(first.source, first.tag.toLowerCase());
+    if (!align) return false;
+    decos.push(
+      Decoration.node(pos, pos + node.nodeSize, {
+        class: `html-align-${align}`,
+      }),
+    );
+    return false;
+  });
+  return DecorationSet.create(doc, decos);
+}
+
+export const htmlBlockAlignPlugin = new Plugin<DecorationSet>({
+  key: blockAlignKey,
+  state: {
+    init: (_, state) => computeBlockAlign(state.doc),
+    apply: (tr, prev) => (tr.docChanged ? computeBlockAlign(tr.doc) : prev),
+  },
+  props: {
+    decorations(state) {
+      return blockAlignKey.getState(state);
+    },
+  },
+});
+
 const inlineHtmlScan: InlineFeatureSpec["scan"] = (text, consumed, parentBlock) => {
   const out: InlineSpan[] = [];
   const isHtmlBlock = parentBlock?.type.name === "html_block";
@@ -252,13 +299,15 @@ const inlineHtmlScan: InlineFeatureSpec["scan"] = (text, consumed, parentBlock) 
     }
 
     // Pass 2 (html_block only): if the first non-whitespace token is a
-    // block-chrome opener, hide it and apply its alignment to the rest
-    // of the block. Per-block — no cross-block state.
+    // block-chrome opener, hide its source chars. Alignment is applied
+    // separately by htmlBlockAlignPlugin (Decoration.node on the
+    // html_block div) — needed because inline decorations can't reach
+    // PM widgets like the rendered badges inside.
     if (isHtmlBlock) {
       const first = tokens.find((t) => t.kind === "open" || t.kind === "close");
       if (first && first.kind === "open" && BLOCK_CHROME_TAGS.has(first.tag.toLowerCase())) {
         const leading = text.slice(0, first.start);
-        if (leading.trim() === "") emitBlockOpener(text, consumed, first, out);
+        if (leading.trim() === "") emitBlockOpener(consumed, first, text.length, out);
       }
     }
 
@@ -371,6 +420,8 @@ export const html: FeatureSpec = {
   markDelims: {
     html_inline: { open: "", close: "" },
   },
+
+  plugins: () => [htmlBlockAlignPlugin],
 
   inline: {
     // After link (3) / math (4). HTML doesn't share delim chars with any
