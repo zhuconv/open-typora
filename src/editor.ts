@@ -65,14 +65,24 @@ function extractBodyHtml(html: string): string {
 // stays as PM's caret placement so the link text remains editable
 // without a modifier shortcut.
 //
-// Implementation note: a synthetic `<a target="_blank">.click()` is more
-// faithful than `window.open(...)`. Chrome treats programmatic anchor
-// clicks as if a user clicked a real link — so the new tab gets focus
-// (foreground), matching the user expectation of "jump to the link".
-// `window.open(... 'noopener,noreferrer')` returns null in modern Chrome
-// (intentional security), so we can't `.focus()` the new window, and the
-// default placement is a background tab.
+// Foreground vs background: open the new tab via `window.open(...)`
+// WITHOUT the `noopener` window feature so the returned `Window` is
+// non-null and `.focus()` can pull the new tab in front. We nuke
+// `opener` on the new window after the fact to mitigate the cross-
+// window reference. If window.open returns null (popup-blocked /
+// browser-specific), fall back to a synthetic `<a target="_blank">`
+// click — at least the link opens, even if the focus heuristic loses.
+//
+// (The earlier `<a target=_blank>.click()` only approach inherited the
+// "Cmd held = background tab" heuristic from the user gesture, so the
+// new tab opened but stayed behind the editor.)
 function openLinkInNewTab(href: string): void {
+  const w = window.open(href, "_blank");
+  if (w) {
+    try { (w as { opener: unknown }).opener = null; } catch { /* ignore */ }
+    w.focus();
+    return;
+  }
   const a = document.createElement("a");
   a.href = href;
   a.target = "_blank";
