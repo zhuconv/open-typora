@@ -127,6 +127,10 @@ const INLINE_TAGS_RE = INLINE_TAGS.join("|");
 
 const HTML_LINK_IMG_RE = /<a\b(?:[^>]*)?>\s*<img\b(?:[^>]*?)\s*\/?>\s*<\/a>/gi;
 const HTML_IMG_RE = /<img\b(?:[^>]*?)\s*\/?>/gi;
+// `<a href>text</a>` with plain-text content (no nested `<`). The widget
+// renders a real clickable anchor; the host's link-click handler routes
+// the click through openLink as usual.
+const HTML_LINK_TEXT_RE = /<a\b(?:[^>]*)?>([^<\n]*?)<\/a>/gi;
 const HTML_INLINE_PAIR_RE = new RegExp(
   `<(${INLINE_TAGS_RE})(?:\\s+[^>]*)?>([^<\\n]*)</\\1>`,
   "gi",
@@ -165,10 +169,12 @@ function emitWidgetSpan(text: string, consumed: Uint8Array, re: RegExp, out: Inl
 
 const inlineHtmlScan: InlineFeatureSpec["scan"] = (text, consumed) => {
   const out: InlineSpan[] = [];
-  // Longest / most specific patterns first.
+  // Longest / most specific patterns first so they claim chars before
+  // broader patterns get a chance.
   emitWidgetSpan(text, consumed, HTML_LINK_IMG_RE, out);
   emitWidgetSpan(text, consumed, HTML_INLINE_PAIR_RE, out);
   emitWidgetSpan(text, consumed, HTML_IMG_RE, out);
+  emitWidgetSpan(text, consumed, HTML_LINK_TEXT_RE, out);
   return out;
 };
 
