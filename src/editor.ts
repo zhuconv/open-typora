@@ -78,7 +78,7 @@ function openLinkInNewTab(href: string): void {
   window.open(href);
 }
 
-function openLinkOnModClickPlugin(): Plugin {
+function openLinkOnModClickPlugin(openLink: (href: string) => void): Plugin {
   return new Plugin({
     props: {
       handleClick(_view, _pos, event) {
@@ -88,19 +88,31 @@ function openLinkOnModClickPlugin(): Plugin {
         const href = a.getAttribute("href");
         if (!href) return false;
         event.preventDefault();
-        openLinkInNewTab(href);
+        openLink(href);
         return true;
       },
     },
   });
 }
 
-export function defaultPlugins(options: { cursorWidget?: boolean } = {}): Plugin[] {
+export interface DefaultPluginsOptions {
+  cursorWidget?: boolean;
+  /** Override for how Cmd/Ctrl+click on a link is followed. Default:
+   *  `(href) => { window.open(href); }`. Host environments without a
+   *  browser tab system (Tauri / Electron) should inject their own
+   *  opener that routes to the system browser (e.g. tauri-plugin-opener). */
+  openLink?: (href: string) => void;
+}
+
+export function defaultPlugins(options: DefaultPluginsOptions = {}): Plugin[] {
   // cursorRenderPlugin paints a visible caret even when the view is not
   // focused — only useful for the replay harness (fakeView has no focus).
   // A real browser editor already draws its own caret, so a live editor
   // should pass `{ cursorWidget: false }`.
-  const { cursorWidget = true } = options;
+  const {
+    cursorWidget = true,
+    openLink = openLinkInNewTab,
+  } = options;
   const featureKeymap = collectKeymaps(schema);
   const plugins: Plugin[] = [
     history(),
@@ -113,7 +125,7 @@ export function defaultPlugins(options: { cursorWidget?: boolean } = {}): Plugin
     // extra decorations merge into PM's decoration pipeline naturally).
     ...collectPlugins(schema),
     syntaxHintsPlugin(),
-    openLinkOnModClickPlugin(),
+    openLinkOnModClickPlugin(openLink),
     htmlPastePlugin(),
   ];
   if (cursorWidget) plugins.push(cursorRenderPlugin());

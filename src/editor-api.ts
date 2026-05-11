@@ -30,6 +30,13 @@ export interface EditorOptions {
   onFocus?: () => void;
   /** Fired when the editor surface loses focus. */
   onBlur?: () => void;
+  /**
+   * Cmd/Ctrl+click on a link triggers this. Default behavior is
+   * `window.open(href)`, which opens a new tab in browser contexts.
+   * In webview hosts (Tauri / Electron), inject a function that calls
+   * the host's shell/opener API so links go to the system browser.
+   */
+  openLink?: (href: string) => void;
 }
 
 export interface Editor {
@@ -71,7 +78,7 @@ export function createEditor(
     const base = EditorState.create({
       schema,
       doc,
-      plugins: defaultPlugins({ cursorWidget: false }),
+      plugins: defaultPlugins({ cursorWidget: false, openLink: options.openLink }),
     });
     // Fire one no-op transaction so normalize's appendTransaction runs
     // and method-B marks (em, strong, autolink, etc.) apply on first
