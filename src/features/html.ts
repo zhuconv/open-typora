@@ -139,6 +139,43 @@ const INLINE_RENDER_TAGS = new Set([
 // and should stay as source inside an html_block.
 const VOID_RENDER_TAGS = new Set(["img", "br"]);
 
+// Pure layout containers. We don't render their tags as widgets; we hide
+// the tag chrome (`<p ...>` / `</p>`) and extract align/style attrs from
+// the opener, wrapping inner content with an alignment class. Matches
+// Typora's behavior for `<p align="center">…</p>` README headers.
+//
+// Tags with semantic UI (details/summary, blockquote, table family) are
+// deliberately omitted — those should stay visible in source view so the
+// user sees they're authoring structured HTML.
+const BLOCK_CHROME_TAGS = new Set([
+  "p", "div", "section", "article", "aside",
+  "header", "footer", "nav", "main",
+  "figure", "figcaption",
+  "center",
+]);
+
+// HTML entity references — `&name;`, `&#NN;`, `&#xHH;`. Common in
+// README HTML (`&nbsp;` separators, `&amp;` literals). We render the
+// decoded character as a widget; the source stays editable.
+const ENTITY_RE = /&(?:[a-zA-Z][a-zA-Z0-9]+|#\d+|#x[0-9a-fA-F]+);/g;
+
+// Cheap extractor — pulls `align="center"` or `style="text-align:center"`
+// out of the open tag. Loose attr matching is OK here: the tokenizer
+// already validated the tag's grammar, so we're peeking inside known-
+// good source. Falls back to null if neither attr is present.
+function extractAlignment(openSource: string, tagLow: string): "center" | "left" | "right" | null {
+  if (tagLow === "center") return "center";
+  const alignM = /\balign\s*=\s*['"]?(center|left|right)['"]?/i.exec(openSource);
+  if (alignM) return alignM[1]!.toLowerCase() as "center" | "left" | "right";
+  const styleM = /\bstyle\s*=\s*"([^"]*)"|\bstyle\s*=\s*'([^']*)'/i.exec(openSource);
+  if (styleM) {
+    const style = (styleM[1] || styleM[2] || "").toLowerCase();
+    const taM = /text-align\s*:\s*(center|left|right)/.exec(style);
+    if (taM) return taM[1] as "center" | "left" | "right";
+  }
+  return null;
+}
+
 function emitWidget(
   text: string,
   consumed: Uint8Array,
@@ -167,27 +204,99 @@ function emitWidget(
   });
 }
 
-const inlineHtmlScan: InlineFeatureSpec["scan"] = (text, consumed) => {
-  // Fast path: no `<` at all → no HTML to find.
-  if (text.indexOf("<") < 0) return [];
+// Block-chrome variant: hide the opening + closing tag chars as
+// softInside (visible only when cursor enters the span), but leave
+// inner content intact so other inline scanners can still pick it up.
+// Apply alignment via a wrapping extraDecoration so `<p align="center">`
+// actually centers its content.
+function emitBlockChrome(
+  text: string,
+  consumed: Uint8Array,
+  m: { tag: string; start: number; end: number; openEnd: number; closeStart: number },
+  out: InlineSpan[],
+): void {
+  // Only block-chrome chars must be unclaimed; inner content can carry
+  // marks (the chrome wraps around them).
+  for (let i = m.start; i < m.openEnd; i++) if (consumed[i]) return;
+  for (let i = m.closeStart; i < m.end; i++) if (consumed[i]) return;
+  markConsumed(consumed, m.start, m.openEnd);
+  markConsumed(consumed, m.closeStart, m.end);
 
-  const tokens = tokenizeHtmlTags(text);
-  const matches = pairTags(tokens);
-  // Outer-before-inner so the outer pair claims its range before the
-  // inner pair's blocked-check runs. Same start (impossible for pairs,
-  // possible only for adjacent void) → wider one first.
-  matches.sort((a, b) => a.start - b.start || b.end - a.end);
+  const align = extractAlignment(text.slice(m.start, m.openEnd), m.tag.toLowerCase());
 
-  const out: InlineSpan[] = [];
-  for (const m of matches) {
-    const tagLow = m.tag.toLowerCase();
-    if (m.kind === "void") {
-      if (!VOID_RENDER_TAGS.has(tagLow)) continue;
-    } else {
-      if (!INLINE_RENDER_TAGS.has(tagLow)) continue;
-    }
-    emitWidget(text, consumed, m.start, m.end, out);
+  out.push({
+    // Empty mark range — we only want the decorations, no html_inline
+    // mark on the inner content (it stays free for nested scanners).
+    type: "html_inline",
+    from: m.end, to: m.end,
+    openFrom: m.end, openTo: m.end,
+    closeFrom: m.end, closeTo: m.end,
+    delimRanges: [
+      { from: m.start, to: m.openEnd, softInside: true },
+      { from: m.closeStart, to: m.end, softInside: true },
+    ],
+    extraDecorations: align
+      ? [{
+          from: m.openEnd,
+          to: m.closeStart,
+          nodeName: "span",
+          attrs: { class: `html-align-${align}` },
+        }]
+      : undefined,
+  });
+}
+
+function emitEntities(text: string, consumed: Uint8Array, out: InlineSpan[]): void {
+  ENTITY_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = ENTITY_RE.exec(text))) {
+    const start = m.index;
+    const end = start + m[0].length;
+    let blocked = false;
+    for (let i = start; i < end; i++) if (consumed[i]) { blocked = true; break; }
+    if (blocked) continue;
+    markConsumed(consumed, start, end);
+    const source = m[0];
+    out.push({
+      type: "html_inline",
+      from: start, to: end,
+      openFrom: start, openTo: start,
+      closeFrom: end, closeTo: end,
+      attrs: { source },
+      delimRanges: [{ from: start, to: end, softInside: true }],
+      widgetDecorations: [
+        { pos: end, when: "outside", kind: "html-inline-render", attrs: { source } },
+      ],
+    });
   }
+}
+
+const inlineHtmlScan: InlineFeatureSpec["scan"] = (text, consumed) => {
+  const out: InlineSpan[] = [];
+
+  // Fast path on the markup-heavy half. Entities can appear without
+  // tags so we always check those separately.
+  if (text.indexOf("<") >= 0) {
+    const tokens = tokenizeHtmlTags(text);
+    const matches = pairTags(tokens);
+    // Outer-before-inner so the outer pair claims its range before the
+    // inner pair's blocked-check runs.
+    matches.sort((a, b) => a.start - b.start || b.end - a.end);
+
+    for (const m of matches) {
+      const tagLow = m.tag.toLowerCase();
+      if (m.kind === "void") {
+        if (!VOID_RENDER_TAGS.has(tagLow)) continue;
+        emitWidget(text, consumed, m.start, m.end, out);
+      } else if (INLINE_RENDER_TAGS.has(tagLow)) {
+        emitWidget(text, consumed, m.start, m.end, out);
+      } else if (BLOCK_CHROME_TAGS.has(tagLow)) {
+        emitBlockChrome(text, consumed, m, out);
+      }
+    }
+  }
+
+  if (text.indexOf("&") >= 0) emitEntities(text, consumed, out);
   return out;
 };
 

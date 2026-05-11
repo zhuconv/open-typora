@@ -71,19 +71,18 @@ export const htmlSpecs: FeatureSpecs = {
     // ──────────────────────────────────────────────────────────────
     // 4. Paired-tag scanner keeps `<p>…\n\n…</p>` together as one
     //    html_block; the embedded `<img/>` is rendered inline by the
-    //    scanner; the structural `<p>` / `</p>` source stays visible.
+    //    scanner; the `<p>` / `</p>` chrome is softInside-hidden so
+    //    the cursor-outside view shows just the rendered content.
     // ──────────────────────────────────────────────────────────────
     {
       id: "paired-tag-keeps-blanks",
-      label: "<p>\\n\\n<img/>\\n\\n</p> stays one block; img renders inline",
+      label: "<p>\\n\\n<img/>\\n\\n</p> chrome hidden; img renders inline",
       seed: '<p align="center">\n\n<img alt="x" src="/y"/>\n\n</p>\n\nafter',
       events: [],
       checkpoints: [
         {
           at: 0,
-          // Cursor in "after" → outside the <img> span → source hidden,
-          // widget renders. <p> / </p> stay as visible source text.
-          expect: `<html-block><p align="center">\n\n<html-inline/>\n\n</p></html-block>\nafter|`,
+          expect: `<html-block>\n\n<html-inline/>\n\n</html-block>\nafter|`,
         },
       ],
     },
@@ -107,14 +106,13 @@ export const htmlSpecs: FeatureSpecs = {
     // ──────────────────────────────────────────────────────────────
     {
       id: "link-wrapped-image",
-      label: "<a href><img></a> badge → one inline widget",
+      label: "<a href><img></a> badge inside hidden <p> chrome",
       seed: '<p align="center"><a href="https://x"><img src="/y"/></a></p>\n\nafter',
       events: [],
       checkpoints: [
         {
           at: 0,
-          expect:
-            `<html-block><p align="center"><html-inline/></p></html-block>\nafter|`,
+          expect: `<html-block><html-inline/></html-block>\nafter|`,
         },
       ],
     },
@@ -153,14 +151,13 @@ export const htmlSpecs: FeatureSpecs = {
     // ──────────────────────────────────────────────────────────────
     {
       id: "plain-anchor-text",
-      label: "<a href>text</a> with plain content renders",
+      label: "<a href>text</a> renders; surrounding <p> chrome hidden",
       seed: '<p><a href="https://x">English</a> | <a href="https://y">中文</a></p>\n\nafter',
       events: [],
       checkpoints: [
         {
           at: 0,
-          expect:
-            `<html-block><p><html-inline/> | <html-inline/></p></html-block>\nafter|`,
+          expect: `<html-block><html-inline/> | <html-inline/></html-block>\nafter|`,
         },
       ],
     },
@@ -175,6 +172,44 @@ export const htmlSpecs: FeatureSpecs = {
       events: [],
       checkpoints: [
         { at: 0, expect: "<span>foo|" },
+      ],
+    },
+
+    // ──────────────────────────────────────────────────────────────
+    // 11. HTML entities (`&nbsp;`, `&amp;`) inside an html_block
+    //     render as the decoded character via inline widgets.
+    //     (markdown-it decodes entities in plain paragraphs at parse
+    //     time, so this only kicks in for the html_block context
+    //     where the source is preserved verbatim.)
+    // ──────────────────────────────────────────────────────────────
+    {
+      id: "entities-render",
+      label: "&nbsp; inside html_block renders as decoded widget",
+      seed: "<p>English&nbsp;|&nbsp;Demo</p>\n\nafter",
+      events: [],
+      checkpoints: [
+        {
+          at: 0,
+          expect:
+            `<html-block>English<html-inline/>|<html-inline/>Demo</html-block>\nafter|`,
+        },
+      ],
+    },
+
+    // ──────────────────────────────────────────────────────────────
+    // 12. Block-chrome with no align attr — chrome still hides; just
+    //     no alignment wrapper applied.
+    // ──────────────────────────────────────────────────────────────
+    {
+      id: "block-chrome-no-align",
+      label: "<div>x</div> hides chrome, content stays",
+      seed: "<div>hello</div>\n\nafter",
+      events: [],
+      checkpoints: [
+        {
+          at: 0,
+          expect: `<html-block>hello</html-block>\nafter|`,
+        },
       ],
     },
   ],

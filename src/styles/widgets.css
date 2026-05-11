@@ -364,6 +364,17 @@
   vertical-align: middle;
 }
 
+/* Block-level alignment wrapper applied via extraDecoration for
+ * `<p align="center">…</p>` (and `style="text-align:…"` equivalents).
+ * The opening / closing `<p>` tag chars themselves are softInside-hidden
+ * so the user sees centered content with the chrome only when their
+ * cursor enters the span. Span with `display: block` is the cleanest
+ * way to make text-align take effect without inserting block-level
+ * nodes into the textblock's content. */
+.ProseMirror .html-align-center { display: block; text-align: center; }
+.ProseMirror .html-align-left   { display: block; text-align: left; }
+.ProseMirror .html-align-right  { display: block; text-align: right; }
+
 
 /* ─── Table layout (structural — always on; theme styles cells) ──── */
 /* Tables default to full editor width with a fixed layout so columns
