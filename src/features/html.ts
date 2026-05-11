@@ -22,6 +22,7 @@ import type { RuleBlock } from "markdown-it/lib/parser_block.mjs";
 import { TextSelection } from "prosemirror-state";
 
 import { markConsumed, markExtRanges, type InlineSpan } from "../inline-parse.ts";
+import { pairTags, tokenizeHtmlTags } from "../inline-html-tokenize.ts";
 import { sanitize } from "../sanitize.ts";
 import type { FeatureSpec, InlineFeatureSpec } from "./_types.ts";
 
@@ -103,78 +104,90 @@ const htmlBlockPairedRule: RuleBlock = (state, startLine, endLine, silent) => {
 // Inline: method-B mark + widget render
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// Three pattern families get rendered as inline widgets (sanitised HTML
-// dropped at the source position; method-B source-hidden-outside-cursor):
+// Pipeline:
+//   1. tokenizeHtmlTags() — CommonMark §6.6 grammar, position-aware.
+//      Produces one token per `<tag>`, `</tag>`, `<self/>`, comment, etc.
+//   2. pairTags() — stack-based balanced match. Returns `pair` (open+close)
+//      or `void` (self-closing / HTML5 void element). Unmatched opens
+//      and closes are dropped; their source stays visible.
+//   3. Allowlist filter — only render tags we recognise as inline-rendered
+//      content. Block-level tags (div / p / section) stay as visible
+//      source even inside an html_block — Typora's "rendered images on
+//      top of source you can still see" model.
+//   4. Emit InlineSpan with the matched range. softInside hides the source
+//      chars outside the cursor span; the widget renders sanitized HTML.
 //
-//   1. `<a …><img …></a>` — link-wrapped image (badges, click-targets).
-//   2. `<img …>` standalone.
-//   3. `<TAG …>…</TAG>` paired inline tag from a conservative allowlist
-//      (kbd / sub / sup / mark / ins / u / abbr / cite / q / samp / var /
-//      small / big / tt).
-//
-// Order: longer / more specific patterns scan first so they claim chars
-// before broader patterns get to them. Non-rendering structural source
-// (`<br>`, `<p>`, `</p>`, plain text) stays as visible text — matches
-// Typora's "rendered images on top of source you can still see and edit"
-// behavior in HTML blocks.
+// Nesting (`<a><img></a>`, `<p><strong>x</strong></p>`): both inner and
+// outer pairs are produced by pairTags. We sort by (start ASC, end DESC)
+// so the outer pair claims its range first and the inner pair's blocked-
+// check skips it — the outer widget renders the inner HTML literally
+// (via DOMPurify in sanitize()).
 
-const INLINE_TAGS = [
-  "kbd", "sub", "sup", "mark", "ins", "u", "abbr", "cite", "q",
-  "samp", "var", "small", "big", "tt",
-];
+// Inline-context tags we render as widgets. Picked to overlap GitHub's
+// rendered-Markdown set for phrasing content + common "badge" patterns
+// (`<a>`, `<span>` with attrs).
+const INLINE_RENDER_TAGS = new Set([
+  "a", "span",
+  "b", "i", "strong", "em", "u", "s", "strike", "del", "ins",
+  "kbd", "sub", "sup", "mark", "abbr", "cite", "q", "samp", "var",
+  "small", "big", "tt", "ruby", "rt", "rp",
+  "bdo", "bdi", "dfn", "time", "font",
+]);
 
-const INLINE_TAGS_RE = INLINE_TAGS.join("|");
+// Void elements that trigger inline widget rendering by themselves (no
+// closer needed). `<hr>` deliberately omitted — it's block-level chrome
+// and should stay as source inside an html_block.
+const VOID_RENDER_TAGS = new Set(["img", "br"]);
 
-const HTML_LINK_IMG_RE = /<a\b(?:[^>]*)?>\s*<img\b(?:[^>]*?)\s*\/?>\s*<\/a>/gi;
-const HTML_IMG_RE = /<img\b(?:[^>]*?)\s*\/?>/gi;
-// `<a href>text</a>` with plain-text content (no nested `<`). The widget
-// renders a real clickable anchor; the host's link-click handler routes
-// the click through openLink as usual.
-const HTML_LINK_TEXT_RE = /<a\b(?:[^>]*)?>([^<\n]*?)<\/a>/gi;
-const HTML_INLINE_PAIR_RE = new RegExp(
-  `<(${INLINE_TAGS_RE})(?:\\s+[^>]*)?>([^<\\n]*)</\\1>`,
-  "gi",
-);
-
-function emitWidgetSpan(text: string, consumed: Uint8Array, re: RegExp, out: InlineSpan[]): void {
-  re.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text))) {
-    const fullStart = m.index;
-    const fullEnd = fullStart + m[0].length;
-    let blocked = false;
-    for (let i = fullStart; i < fullEnd; i++) {
-      if (consumed[i]) { blocked = true; break; }
-    }
-    if (blocked) continue;
-    markConsumed(consumed, fullStart, fullEnd);
-
-    const source = m[0];
-    out.push({
-      type: "html_inline",
-      from: fullStart,
-      to: fullEnd,
-      openFrom: fullStart,
-      openTo: fullStart,
-      closeFrom: fullEnd,
-      closeTo: fullEnd,
-      attrs: { source },
-      delimRanges: [{ from: fullStart, to: fullEnd, softInside: true }],
-      widgetDecorations: [
-        { pos: fullEnd, when: "outside", kind: "html-inline-render", attrs: { source } },
-      ],
-    });
+function emitWidget(
+  text: string,
+  consumed: Uint8Array,
+  start: number,
+  end: number,
+  out: InlineSpan[],
+): void {
+  for (let i = start; i < end; i++) {
+    if (consumed[i]) return;
   }
+  markConsumed(consumed, start, end);
+  const source = text.slice(start, end);
+  out.push({
+    type: "html_inline",
+    from: start,
+    to: end,
+    openFrom: start,
+    openTo: start,
+    closeFrom: end,
+    closeTo: end,
+    attrs: { source },
+    delimRanges: [{ from: start, to: end, softInside: true }],
+    widgetDecorations: [
+      { pos: end, when: "outside", kind: "html-inline-render", attrs: { source } },
+    ],
+  });
 }
 
 const inlineHtmlScan: InlineFeatureSpec["scan"] = (text, consumed) => {
+  // Fast path: no `<` at all → no HTML to find.
+  if (text.indexOf("<") < 0) return [];
+
+  const tokens = tokenizeHtmlTags(text);
+  const matches = pairTags(tokens);
+  // Outer-before-inner so the outer pair claims its range before the
+  // inner pair's blocked-check runs. Same start (impossible for pairs,
+  // possible only for adjacent void) → wider one first.
+  matches.sort((a, b) => a.start - b.start || b.end - a.end);
+
   const out: InlineSpan[] = [];
-  // Longest / most specific patterns first so they claim chars before
-  // broader patterns get a chance.
-  emitWidgetSpan(text, consumed, HTML_LINK_IMG_RE, out);
-  emitWidgetSpan(text, consumed, HTML_INLINE_PAIR_RE, out);
-  emitWidgetSpan(text, consumed, HTML_IMG_RE, out);
-  emitWidgetSpan(text, consumed, HTML_LINK_TEXT_RE, out);
+  for (const m of matches) {
+    const tagLow = m.tag.toLowerCase();
+    if (m.kind === "void") {
+      if (!VOID_RENDER_TAGS.has(tagLow)) continue;
+    } else {
+      if (!INLINE_RENDER_TAGS.has(tagLow)) continue;
+    }
+    emitWidget(text, consumed, m.start, m.end, out);
+  }
   return out;
 };
 

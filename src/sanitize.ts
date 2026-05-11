@@ -16,13 +16,18 @@ const ALLOWED_TAGS = [
   // Headings + paragraphs
   "h1", "h2", "h3", "h4", "h5", "h6",
   "p", "br", "hr",
-  // Inline text
-  "b", "i", "strong", "em", "tt", "code", "kbd", "samp", "var", "q",
+  // Inline text — phrasing content. Slight superset of GitHub's
+  // html-pipeline list to keep legacy README markup working (`<u>`,
+  // `<font>`, `<big>` etc. show up in old projects).
+  "b", "i", "strong", "em", "u", "tt", "code", "kbd", "samp", "var", "q",
   "sub", "sup", "s", "strike", "del", "ins", "mark",
+  "small", "big", "font",
   "abbr", "acronym", "cite", "address",
+  "bdo", "bdi", "dfn", "time", "wbr",
   "ruby", "rt", "rp",
   // Block containers
-  "div", "span", "pre", "blockquote",
+  "div", "span", "pre", "blockquote", "section", "article", "aside",
+  "header", "footer", "nav", "main", "figure", "figcaption",
   // Lists
   "ul", "ol", "li", "dl", "dd", "dt",
   // Tables
@@ -37,20 +42,27 @@ const ALLOWED_TAGS = [
 ];
 
 const ALLOWED_ATTR = [
-  // Generic
-  "id", "class", "title", "lang", "dir",
+  // Generic — `class` / `id` / `data-*` deliberately survive. Typora
+  // strips these at render time (kept only on export), which prevents
+  // CSS targeting in the live editor. We keep them so users can author
+  // styled README HTML and see it as-rendered.
+  "id", "class", "title", "lang", "dir", "role", "tabindex",
   // Links
-  "href", "rel", "target", "name",
+  "href", "rel", "target", "name", "hreflang", "download",
   // Media
-  "src", "alt", "srcset", "sizes", "media", "type",
-  "width", "height",
+  "src", "alt", "srcset", "sizes", "media", "type", "loading",
+  "width", "height", "longdesc",
   // Tables
   "align", "valign", "colspan", "rowspan", "scope", "headers", "abbr", "span",
-  // Disclosure
-  "open",
+  // Disclosure / interactive
+  "open", "cite", "datetime", "value", "start", "reversed",
+  // Legacy `<font>` — deprecated by spec but still seen in old docs.
+  "color", "face", "size",
 ];
 
 const FORBID_TAGS = [
+  // Hard-banned regardless of allowlist: any script execution surface
+  // and any form input (we're a content viewer, not an app shell).
   "script", "style", "iframe", "frame", "frameset",
   "object", "embed", "applet",
   "form", "input", "button", "textarea", "select", "option", "optgroup",
@@ -62,7 +74,11 @@ const SANITIZE_CONFIG = {
   ALLOWED_TAGS,
   ALLOWED_ATTR,
   FORBID_TAGS,
-  ALLOW_DATA_ATTR: false,
+  // Keep `data-*` — Typora strips these at render time (issue typora/
+  // typora-issues#2442) which breaks CSS targeting. Letting them survive
+  // is a deliberate divergence.
+  ALLOW_DATA_ATTR: true,
+  ALLOW_ARIA_ATTR: true,
   ALLOW_UNKNOWN_PROTOCOLS: false,
   // Strip rather than escape — escaped script tags as text are confusing.
   KEEP_CONTENT: true,

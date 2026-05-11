@@ -118,5 +118,64 @@ export const htmlSpecs: FeatureSpecs = {
         },
       ],
     },
+
+    // ──────────────────────────────────────────────────────────────
+    // 7. attrs containing `>` (e.g. CSS selectors, comparison)
+    //    must not break the tokenizer.
+    // ──────────────────────────────────────────────────────────────
+    {
+      id: "attr-with-gt",
+      label: "<kbd title='a>b'>X</kbd> attrs with `>` still tokenize",
+      seed: 'press <kbd title="a>b">X</kbd> now',
+      events: ["<Home>"],
+      checkpoints: [
+        { at: 1, expect: "|press <html-inline/> now" },
+      ],
+    },
+
+    // ──────────────────────────────────────────────────────────────
+    // 8. Two sibling inline tags — both render as widgets.
+    // ──────────────────────────────────────────────────────────────
+    {
+      id: "two-siblings",
+      label: "<kbd>a</kbd> + <kbd>b</kbd> both render",
+      seed: "press <kbd>A</kbd> then <kbd>B</kbd>",
+      events: ["<Home>"],
+      checkpoints: [
+        { at: 1, expect: "|press <html-inline/> then <html-inline/>" },
+      ],
+    },
+
+    // ──────────────────────────────────────────────────────────────
+    // 9. Plain `<a>text</a>` (no img) renders as inline widget.
+    //    This was the Vditor README regression that motivated the
+    //    tokenizer rewrite.
+    // ──────────────────────────────────────────────────────────────
+    {
+      id: "plain-anchor-text",
+      label: "<a href>text</a> with plain content renders",
+      seed: '<p><a href="https://x">English</a> | <a href="https://y">中文</a></p>\n\nafter',
+      events: [],
+      checkpoints: [
+        {
+          at: 0,
+          expect:
+            `<html-block><p><html-inline/> | <html-inline/></p></html-block>\nafter|`,
+        },
+      ],
+    },
+
+    // ──────────────────────────────────────────────────────────────
+    // 10. Unbalanced `<span>foo` stays as raw text — no widget.
+    // ──────────────────────────────────────────────────────────────
+    {
+      id: "unbalanced-open",
+      label: "<span>foo (no closer) stays raw",
+      seed: "<span>foo",
+      events: [],
+      checkpoints: [
+        { at: 0, expect: "<span>foo|" },
+      ],
+    },
   ],
 };
