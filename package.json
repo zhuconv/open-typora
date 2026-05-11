@@ -32,7 +32,8 @@
     "build:lib": "tsc && vp build --config vite.lib.config.ts",
     "preview": "vp preview",
     "test": "vp test --run",
-    "prepublishOnly": "npm run build:lib"
+    "prepublishOnly": "npm run build:lib",
+    "prepare": "npm run build:lib"
   },
   "devDependencies": {
     "@types/katex": "^0.16.8",
