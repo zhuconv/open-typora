@@ -303,6 +303,70 @@
 .ProseMirror pre .cb-lang-input:focus { border-color: #1f1f1f; }
 .ProseMirror pre.cb-lang-focus .play-caret { display: none; }
 
+/* ─── Math block + inline NodeView ───────────────────────────────── */
+.ProseMirror .math-block { margin: 0.5em 0; }
+.ProseMirror .math-block .math-source { display: none; margin: 0; }
+.ProseMirror .math-block.mb-active .math-source {
+  display: block;
+  background: #f7f7f7;
+  border: 1px solid #e5e5e5;
+  border-radius: 4px;
+  padding: 8px 10px;
+  font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+}
+.ProseMirror .math-block .math-render {
+  display: block;
+  text-align: center;
+  cursor: pointer;
+  padding: 6px 0;
+  overflow-x: auto;
+}
+.ProseMirror .math-block.mb-active .math-render { display: none; }
+.ProseMirror .math-block .math-render.math-empty {
+  color: #aaa;
+  font-style: italic;
+  font-size: 0.9em;
+}
+.ProseMirror .math-inline-render {
+  display: inline-block;
+  user-select: none;
+}
+.ProseMirror .math-error {
+  color: #c43;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85em;
+}
+
+/* ─── HTML block + inline NodeView ───────────────────────────────── */
+.ProseMirror .html-block { margin: 0.5em 0; }
+.ProseMirror .html-block .html-source { display: none; margin: 0; }
+.ProseMirror .html-block.hb-active .html-source {
+  display: block;
+  background: #f7f7f7;
+  border: 1px solid #e5e5e5;
+  border-radius: 4px;
+  padding: 8px 10px;
+  font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+}
+.ProseMirror .html-block .html-render {
+  display: block;
+  padding: 4px 0;
+  cursor: pointer;
+}
+.ProseMirror .html-block.hb-active .html-render { display: none; }
+.ProseMirror .html-block .html-render.html-empty {
+  color: #aaa;
+  font-style: italic;
+  font-size: 0.9em;
+}
+.ProseMirror .html-inline-render {
+  display: inline-block;
+  user-select: none;
+}
+
+
 /* ─── Table layout (structural — always on; theme styles cells) ──── */
 /* Tables default to full editor width with a fixed layout so columns
  * are predictable and the toolbar's anchor rect spans the editor.

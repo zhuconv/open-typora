@@ -14,6 +14,15 @@ import { Decoration, DecorationSet } from "prosemirror-view";
 
 import { getDelims, getExtras, getWidgets, type WidgetDecoration } from "./normalize.ts";
 
+// KaTeX renderer used by the math-inline widget. Imported lazily via a
+// module-level reference so the bundle still tree-shakes if the math
+// feature is removed from ALL_FEATURES (the import side-effect — pulling
+// in katex.min.css — only fires when math.ts is imported).
+import katex from "katex";
+
+// Inline HTML widget passes raw HTML through the GFM sanitizer.
+import { sanitize as htmlSanitize } from "./sanitize.ts";
+
 // Widget builders — keyed by `kind`. A widget renders as a DOM element
 // at a specific position; decorations.ts decides whether to emit it based
 // on the cursor's relation to the parent span.
@@ -42,6 +51,28 @@ const widgetBuilders: Record<string, (attrs: Record<string, string>) => HTMLElem
     if (attrs.alt) img.setAttribute("alt", attrs.alt);
     if (attrs.title) img.setAttribute("title", attrs.title);
     return img;
+  },
+  "math-inline-render": (attrs) => {
+    const el = document.createElement("span");
+    el.className = "math-inline-render";
+    const latex = attrs.latex ?? "";
+    try {
+      el.innerHTML = katex.renderToString(latex, {
+        displayMode: false,
+        throwOnError: false,
+        output: "html",
+      });
+    } catch (e) {
+      el.textContent = e instanceof Error ? e.message : String(e);
+      el.classList.add("math-error");
+    }
+    return el;
+  },
+  "html-inline-render": (attrs) => {
+    const el = document.createElement("span");
+    el.className = "html-inline-render";
+    el.innerHTML = htmlSanitize(attrs.source ?? "");
+    return el;
   },
   checkbox: (attrs) => {
     // Task-list checkbox. data-checked stamped so test-pretty can

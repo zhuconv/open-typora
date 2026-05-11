@@ -4,6 +4,12 @@ export const fencedCodeSpecs: FeatureSpecs = {
   name: "code_block",
   renderCases: {
     pre: (_children, el) => {
+      // math_block + html_block both nest a `<pre>` inside their NodeView
+      // for the source view. Skip those — the outer feature's div handler
+      // owns rendering.
+      if (el.classList.contains("math-source") || el.classList.contains("html-source")) {
+        return null;
+      }
       const lang = el.getAttribute("data-lang") ?? "";
       const langFocus = el.hasAttribute("data-lang-focus");
       const codeEl = el.querySelector("code");

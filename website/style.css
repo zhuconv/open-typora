@@ -63,6 +63,11 @@ html, body {
   scroll-margin-top: 72px;
 }
 
+/* Plain click on a link opens it (see editor.ts openLinkOnClickPlugin).
+ * Use pointer so it's discoverable; Cmd/Ctrl+click still positions the
+ * caret inside for editing. */
+.ProseMirror a[href] { cursor: pointer; }
+
 /* ─── page wrapper ───────────────────────────────────────────────── */
 .page {
   max-width: 760px;

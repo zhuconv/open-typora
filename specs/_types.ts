@@ -32,7 +32,11 @@ export type Case = {
   checkpoints: Checkpoint[];
 };
 
-export type RenderCase = (children: string, el: Element) => string;
+// A handler can return `null` to mean "not my element — try the next
+// handler registered for the same tag". Lets multiple features claim the
+// same generic tag (e.g. `<div>` for both toc and math-block) without
+// stomping on each other.
+export type RenderCase = (children: string, el: Element) => string | null;
 
 export type FeatureSpecs = {
   name: string;

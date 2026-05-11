@@ -71,7 +71,10 @@ function renderNode(n: Node): string {
   const children = Array.from(el.childNodes).map(renderNode).join("");
 
   const featureCase = featureRenderCases[tag];
-  if (featureCase) return featureCase(children, el);
+  if (featureCase) {
+    const result = featureCase(children, el);
+    if (result !== null) return result;
+  }
 
   switch (tag) {
     case "p":

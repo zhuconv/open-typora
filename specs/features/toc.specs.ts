@@ -5,9 +5,9 @@ export const tocSpecs: FeatureSpecs = {
   renderCases: {
     // Pretty: <toc/> self-closing. The list contents are dynamic (depend
     // on doc headings), so the assertion is presence, not contents.
-    div: (children, el) => {
+    div: (_children, el) => {
       if (el.classList.contains("toc")) return "<toc/>";
-      return children;
+      return null;
     },
   },
   cases: [

@@ -17,7 +17,8 @@ Task lists hold their state visually:
 - [x] inline marks (em, strong, code, strike, highlight, sub/sup)
 - [x] autolinks and reference-style links
 - [x] tables with per-column alignment
-- [ ] inline and block math (planned, KaTeX-based)
+- [x] inline and block math (KaTeX, click-to-edit)
+- [x] inline and block HTML (DOMPurify with a GFM-style allowlist)
 - [ ] diagram fences like mermaid (planned, opt-in)
 
 Lists nest, and exit on a triple-Enter staircase the way Typora does:
@@ -31,6 +32,18 @@ Lists nest, and exit on a triple-Enter staircase the way Typora does:
 > Blockquotes render inline marks just like paragraphs do. You can drop ==highlights==, [links](https://typora.io), or `code` into a quote and the source still round-trips byte for byte.
 >
 > Press Enter on an empty quote line to exit.
+
+Math renders inline ($e^{i\pi} + 1 = 0$) and as a centered block:
+
+$$
+\int_{-\infty}^{\infty} e^{-x^2}\,dx = \sqrt{\pi}
+$$
+
+Click into either form to edit the LaTeX source; click out to see the render again.
+
+Inline HTML in the GFM allowlist also works — press <kbd>Ctrl</kbd>+<kbd>K</kbd> or use a <mark>highlighted span</mark>. Block-level HTML stays as a folded preview until you click in:
+
+<details><summary>Click to expand</summary>The rendered HTML lives behind a sanitizer, so <code>&lt;script&gt;</code> and friends get stripped.</details>
 
 Press `⌘/` (or `Ctrl+/`) at any time to toggle between rendered and raw source view.
 
@@ -91,8 +104,8 @@ Legend: :white_check_mark: stable · :yellow_circle: partial (note explains what
 | table `\| a \| b \|` | :white_check_mark: | |
 | YAML front matter | :white_check_mark: | |
 | reference link def `[id]: url` | :yellow_circle: | live entry committed as block; reload drops the def node (markdown-it consumes it on parse) |
-| HTML block | :pause_button: | needs sanitizer policy; planned as opt-in plugin |
-| math block `$$…$$` | :pause_button: | planned as opt-in KaTeX plugin |
+| HTML block | :white_check_mark: | DOMPurify w/ GFM-style allowlist; comment-only blocks stay inline |
+| math block `$$…$$` | :white_check_mark: | KaTeX render; click into block toggles source view |
 
 ### Inline syntax
 
@@ -112,8 +125,8 @@ Legend: :white_check_mark: stable · :yellow_circle: partial (note explains what
 | hard break (2-space + `\n`) | :white_check_mark: | |
 | soft break (`\n` in para) | :white_check_mark: | |
 | backslash escape `\*` | :yellow_circle: | round-trip works; no input-time UX |
-| inline HTML | :pause_button: | paired with HTML block decision |
-| inline math `$x$` | :pause_button: | planned with math block |
+| inline HTML | :white_check_mark: | method-B mark; KaTeX-style click-to-edit on tags in the GFM allowlist |
+| inline math `$x$` | :white_check_mark: | KaTeX render outside cursor, source visible inside |
 
 ### Typora extensions
 

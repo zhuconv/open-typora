@@ -17,9 +17,11 @@ import { frontMatter } from "./front-matter.ts";
 import { heading } from "./heading.ts";
 import { highlight } from "./highlight.ts";
 import { hr } from "./hr.ts";
+import { html } from "./html.ts";
 import { htmlComment } from "./html-comment.ts";
 import { image } from "./image.ts";
 import { link } from "./link.ts";
+import { math } from "./math.ts";
 import { refDef } from "./ref-def.ts";
 import { list } from "./list.ts";
 import { strike } from "./strike.ts";
@@ -46,6 +48,8 @@ export const ALL_FEATURES: FeatureSpec[] = [
   task,
   list,
   fencedCode,
+  math,
+  html,
   frontMatter,
   refDef,
   table,

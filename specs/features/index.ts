@@ -19,10 +19,12 @@ import { frontMatterSpecs } from "./front-matter.specs.ts";
 import { headingSpecs } from "./heading.specs.ts";
 import { highlightSpecs } from "./highlight.specs.ts";
 import { hrSpecs } from "./hr.specs.ts";
+import { htmlSpecs } from "./html.specs.ts";
 import { htmlCommentSpecs } from "./html-comment.specs.ts";
 import { imageSpecs } from "./image.specs.ts";
 import { linkSpecs } from "./link.specs.ts";
 import { listSpecs } from "./list.specs.ts";
+import { mathSpecs } from "./math.specs.ts";
 import { refDefSpecs } from "./ref-def.specs.ts";
 import { strikeSpecs } from "./strike.specs.ts";
 import { subSupSpecs } from "./sub-sup.specs.ts";
@@ -47,6 +49,8 @@ export const ALL_SPECS: FeatureSpecs[] = [
   taskSpecs,
   listSpecs,
   fencedCodeSpecs,
+  mathSpecs,
+  htmlSpecs,
   frontMatterSpecs,
   refDefSpecs,
   tableSpecs,
@@ -55,7 +59,23 @@ export const ALL_SPECS: FeatureSpecs[] = [
 ];
 
 export function collectRenderCases(): Record<string, RenderCase> {
-  return Object.assign({}, ...ALL_SPECS.map((s) => s.renderCases ?? {}));
+  // Chain multiple handlers for the same tag: each returns `null` to defer
+  // to the next one. First non-null wins. Without this two features that
+  // both render `<div>` (toc and math) would step on each other under
+  // Object.assign.
+  const out: Record<string, RenderCase> = {};
+  for (const s of ALL_SPECS) {
+    for (const [tag, rc] of Object.entries(s.renderCases ?? {})) {
+      const prev = out[tag];
+      out[tag] = prev
+        ? (children, el) => {
+            const r = prev(children, el);
+            return r !== null ? r : rc(children, el);
+          }
+        : rc;
+    }
+  }
+  return out;
 }
 
 // Cases get namespaced by feature so ids stay unique across the app.
