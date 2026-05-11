@@ -28,8 +28,15 @@ export type SerializerConfig = {
 };
 
 // md configuration
+//
+// `<` and `>` are intentionally NOT in the escape set: HTML feature stores
+// raw HTML source as text (`<details>x</details>` literal in the doc), and
+// escaping every angle bracket on save corrupts the source on the next
+// round-trip (parser sees `\<` and treats it as text, never as an HTML
+// block / inline tag). markdown-it tolerates literal `<` as text outside
+// of valid tag shapes anyway.
 const mdEscapeInline = (ch: string): string =>
-  /[\\`*_\[\]<>]/.test(ch) ? `\\${ch}` : ch;
+  /[\\`*_\[\]]/.test(ch) ? `\\${ch}` : ch;
 const mdEscapeBlockStart = (ch: string): string =>
   /[#\->+*_]/.test(ch) ? `\\${ch}` : mdEscapeInline(ch);
 
